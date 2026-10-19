@@ -92,9 +92,12 @@ C:\UE\Engine\Build\BatchFiles\Build.bat CoinDemoEditor Win64 Development -Projec
 
 ### 패키징 (에디터 없이 실행되는 exe)
 ```bat
-C:\UE\Engine\Build\BatchFiles\RunUAT.bat BuildCookRun -project=<repo>\CoinDemo\CoinDemo.uproject -noP4 -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory=<repo>\Build -utf8output -unattended
+C:\UE\Engine\Build\BatchFiles\RunUAT.bat BuildCookRun -project=<repo>\CoinDemo\CoinDemo.uproject -noP4 -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory=<repo>\Build -utf8output -unattended -ignorecookerrors
 ```
-스테이지는 GameMode가 경로(soft reference)로 여는 맵이라 `DefaultGame.ini`의 `MapsToCook`에 등록되어 있어야 쿠킹에 포함됩니다.
+결과: `Build/Windows/CoinDemo.exe` (약 4.8GB, 폴더째로 복사하면 다른 PC에서도 실행. DirectX 12 GPU 필요)
+- 스테이지는 GameMode가 경로(soft reference)로 여는 맵이라 `DefaultGame.ini`의 `MapsToCook`에 등록되어 있어야 쿠킹에 포함됩니다.
+- DX11(SM5)은 쿠킹 대상에서 뺐습니다. 3DGS 플러그인 셰이더가 SM5 한도(UAV 8개)를 넘어서 쿠커가 멈춥니다.
+- `-ignorecookerrors`: 무해한 `LogUnrealNames: Error: String is too long` 한 줄 때문에 쿠킹이 실패 처리되는 것을 막습니다.
 
 ---
 
