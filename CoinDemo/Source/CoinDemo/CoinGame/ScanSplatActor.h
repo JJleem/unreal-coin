@@ -26,6 +26,9 @@ public:
 	/** Constructor */
 	AScanSplatActor();
 
+	/** Applies -SplatLOD=<error threshold> and -SplatSH=<order> from the command line, for quick quality comparisons */
+	virtual void BeginPlay() override;
+
 	/** Returns the splat component */
 	UFUNCTION(BlueprintPure, Category="Scan")
 	UGaussianSplatComponent* GetSplat() const { return Splat; }

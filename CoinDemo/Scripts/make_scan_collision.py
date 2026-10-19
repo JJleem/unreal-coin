@@ -179,7 +179,7 @@ def build(folder):
         "ground": {"vertices": cm(ground), "indices": indices.tolist()},
         "walls": cm(boxes),
         "start": cm([start[0, 0], start[0, 1], keep_z[-1]]),
-        "coins": cm(np.column_stack([coins[:, :2], keep_z[:-1] + COIN_HEIGHT])),
+        "coins": cm(np.column_stack([coins[:, :2], keep_z[:-1] + COIN_HEIGHT]))
     }
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, f"{name}_collision.json"), "w") as f:

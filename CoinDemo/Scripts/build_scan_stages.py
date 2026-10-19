@@ -22,6 +22,7 @@ import unreal
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANS_DIR = os.path.normpath(os.path.join(HERE, "..", "..", "Scans"))
 GENERATED_DIR = os.path.join(HERE, "generated")
+CLEAN_DIR = os.path.normpath(os.path.join(HERE, "..", "SourceAssets", "CleanScans"))
 STAGES_PATH = "/Game/Stages"
 
 # Capsule half height of the template character, so the player spawns standing on the ground
@@ -30,11 +31,18 @@ PLAYER_START_HEIGHT = 100.0
 # Splat render settings: degree 1 spherical harmonics keeps multi-million splat scans
 # playable (a little less view-dependent shine). Sort every frame: skipping frames makes splats pop while moving
 SPLAT_SH_ORDER = 1
+
+# Scans exported with degree 3 spherical harmonics keep it: they render at 250+ fps with cluster LODs
+SPLAT_SH_ORDER_OVERRIDE = {"Gwanghwamun": 3, "JejuPier": 3}
 SPLAT_SORT_EVERY_NTH_FRAME = 1
 
 # Character lighting in lux / sky light scale
-SUN_INTENSITY = 3.0
-SKY_INTENSITY = 0.6
+SUN_INTENSITY = 1.5
+SKY_INTENSITY = 0.35
+
+# Nothing is drawn behind the scans on purpose: their floors and walls are built from many faint splats, so
+# whatever is behind shows through. The sky atmosphere's dark ground below the horizon matches what the scans
+# were trained against; fog or a colored ground fill tints the whole floor.
 
 
 def vec(p):
@@ -121,6 +129,14 @@ def box_geometry(boxes):
 def import_splat(name, ply_path, package_path):
     """Imports the PLY through OpenSplat4D's factory and builds its cluster LODs. Reuses an existing asset."""
     asset_path = f"{package_path}/{name}"
+
+    # an asset imported from a different file (e.g. before the scan was cleaned) is imported again
+    if unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+        existing = unreal.load_asset(asset_path)
+        if os.path.normcase(os.path.normpath(existing.get_editor_property("source_file_path"))) != os.path.normcase(ply_path):
+            unreal.log(f"[ScanStages] {name} was imported from another file, importing {ply_path}")
+            unreal.EditorAssetLibrary.delete_asset(asset_path)
+
     if not unreal.EditorAssetLibrary.does_asset_exist(asset_path):
         task = unreal.AssetImportTask()
         task.set_editor_property("filename", ply_path)
@@ -173,7 +189,11 @@ def build_stage(folder):
     level_path = f"{STAGES_PATH}/Lvl_{name}"
     unreal.log(f"[ScanStages] Building {level_path} (1 unit = {mpu:.3f} m)")
 
-    splat_asset = import_splat(name, os.path.join(SCANS_DIR, folder, f"{name}.ply"), package_path)
+    # clean_scans.py writes copies without streak and haze splats; prefer them
+    ply_path = os.path.join(CLEAN_DIR, f"{name}.ply")
+    if not os.path.exists(ply_path):
+        ply_path = os.path.join(SCANS_DIR, folder, f"{name}.ply")
+    splat_asset = import_splat(name, os.path.normpath(ply_path), package_path)
     ground_mesh = create_collision_mesh(f"SM_{name}_Ground", package_path, *ground_geometry(data["ground"]))
     wall_mesh = create_collision_mesh(f"SM_{name}_Walls", package_path, *box_geometry(data["walls"]))
 
@@ -189,7 +209,7 @@ def build_stage(folder):
     splat_actor = spawn(actors, unreal.ScanSplatActor, unreal.Vector(0, 0, 0), label=f"Scan_{name}")
     splat = splat_actor.get_splat()
     splat.set_splat_asset(splat_asset)
-    splat.set_editor_property("sh_order", SPLAT_SH_ORDER)
+    splat.set_editor_property("sh_order", SPLAT_SH_ORDER_OVERRIDE.get(name, SPLAT_SH_ORDER))
     splat.set_editor_property("sort_every_nth_frame", SPLAT_SORT_EVERY_NTH_FRAME)
     splat_actor.set_actor_scale3d(unreal.Vector(mpu, mpu, mpu))
 
@@ -206,7 +226,7 @@ def build_stage(folder):
     sky.light_component.set_editor_property("real_time_capture", True)
     sky.light_component.set_editor_property("intensity", SKY_INTENSITY)
 
-    # little bloom, so the white mannequin doesn't glow against the photographed scene
+    # little bloom, so the character doesn't glow against the photographed scene
     post = spawn(actors, unreal.PostProcessVolume, unreal.Vector(0, 0, 0), label="PostProcess")
     post.set_editor_property("unbound", True)
     settings = post.get_editor_property("settings")
