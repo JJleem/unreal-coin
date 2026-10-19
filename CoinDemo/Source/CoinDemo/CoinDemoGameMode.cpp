@@ -5,6 +5,7 @@
 #include "CoinPickup.h"
 #include "DevCapture.h"
 #include "CoinDemoSaveGame.h"
+#include "CoinDemoGameInstance.h"
 #include "Sound/SoundBase.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Kismet/KismetMaterialLibrary.h"
@@ -89,6 +90,16 @@ void ACoinDemoGameMode::CoinCollected()
 			SaveGame->Save();
 		}
 
+		if (UCoinDemoGameInstance* Instance = GetGameInstance<UCoinDemoGameInstance>())
+		{
+			// a run starts at the first stage
+			if (GetStageNumber() == 1)
+			{
+				Instance->ResetRun();
+			}
+			Instance->AddResult(GetStageName(), Time);
+		}
+
 		if (USoundBase* Sound = (bNewRecord && PreviousBestTime >= 0.0f) ? RecordSound : ClearSound)
 		{
 			UGameplayStatics::PlaySound2D(this, Sound);
@@ -99,6 +110,10 @@ void ACoinDemoGameMode::CoinCollected()
 		if (!IsLastStage())
 		{
 			GetWorldTimerManager().SetTimer(NextStageTimer, this, &ACoinDemoGameMode::OpenNextStage, FMath::Max(NextStageDelay, 0.01f), false);
+		}
+		else
+		{
+			GetWorldTimerManager().SetTimer(NextStageTimer, this, &ACoinDemoGameMode::OpenFirstStage, FMath::Max(RestartDelay, 0.01f), false);
 		}
 	}
 }
@@ -153,6 +168,19 @@ FText ACoinDemoGameMode::GetStageName() const
 {
 	const int32 Index = GetStageNumber() - 1;
 	return StageNames.IsValidIndex(Index) ? StageNames[Index] : FText::FromString(UGameplayStatics::GetCurrentLevelName(this, true));
+}
+
+void ACoinDemoGameMode::RestartStage()
+{
+	UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
+}
+
+void ACoinDemoGameMode::OpenFirstStage()
+{
+	if (Stages.Num() > 0)
+	{
+		UGameplayStatics::OpenLevelBySoftObjectPtr(this, Stages[0]);
+	}
 }
 
 void ACoinDemoGameMode::OpenNextStage()

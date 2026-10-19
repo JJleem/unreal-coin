@@ -36,9 +36,11 @@ SPLAT_SH_ORDER = 1
 SPLAT_SH_ORDER_OVERRIDE = {"Gwanghwamun": 3, "JejuPier": 3}
 SPLAT_SORT_EVERY_NTH_FRAME = 1
 
-# Character lighting in lux / sky light scale
+# Character lighting in lux / sky light scale, seen through a fixed exposure. The splats ignore exposure, so eye
+# adaptation would only brighten or darken the character; manual exposure keeps it matched to the scan
 SUN_INTENSITY = 0.8
 SKY_INTENSITY = 0.2
+EXPOSURE_BIAS = 5.5
 
 # Walls and breakable barriers are drawn with a cyan grid that only shows within a few metres of the player
 BARRIER_COLLECTION = "/Game/Stages/Common/MPC_Barrier"
@@ -356,16 +358,23 @@ def build_stage(folder):
     sky.light_component.set_editor_property("real_time_capture", True)
     sky.light_component.set_editor_property("intensity", SKY_INTENSITY)
 
-    # little bloom, so the character doesn't glow against the photographed scene
+    # little bloom and a fixed exposure, so the character doesn't glow against the photographed scene
     post = spawn(actors, unreal.PostProcessVolume, unreal.Vector(0, 0, 0), label="PostProcess")
     post.set_editor_property("unbound", True)
     settings = post.get_editor_property("settings")
     settings.set_editor_property("override_bloom_intensity", True)
     settings.set_editor_property("bloom_intensity", 0.15)
+    settings.set_editor_property("override_auto_exposure_method", True)
+    settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+    settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
+    settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
+    settings.set_editor_property("override_auto_exposure_bias", True)
+    settings.set_editor_property("auto_exposure_bias", EXPOSURE_BIAS)
     post.set_editor_property("settings", settings)
 
     start = data["start"]
-    spawn(actors, unreal.PlayerStart, unreal.Vector(start[0], start[1], start[2] + PLAYER_START_HEIGHT), label="PlayerStart")
+    spawn(actors, unreal.PlayerStart, unreal.Vector(start[0], start[1], start[2] + PLAYER_START_HEIGHT),
+          unreal.Rotator(0, 0, data.get("startYaw", 0.0)), label="PlayerStart")
 
     for i, coin in enumerate(data["coins"], start=1):
         spawn(actors, unreal.CoinPickup, vec(coin), label=f"Coin_{i:02d}")

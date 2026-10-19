@@ -6,9 +6,11 @@
 #include "CoinDemoCharacter.h"
 #include "CoinPickup.h"
 #include "BreakableBarrier.h"
+#include "CoinDemoGameMode.h"
 #include "EngineUtils.h"
 #include "Components/LightComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Engine/PostProcessVolume.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
@@ -82,6 +84,22 @@ void UDevCapture::BeginPlay()
 		}
 	}
 
+	// fixed manual exposure instead of eye adaptation
+	float ExposureBias = 0.0f;
+	if (FParse::Value(CommandLine, TEXT("ExposureBias="), ExposureBias))
+	{
+		for (TActorIterator<APostProcessVolume> It(GetWorld()); It; ++It)
+		{
+			FPostProcessSettings& Settings = It->Settings;
+			Settings.bOverride_AutoExposureMethod = true;
+			Settings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+			Settings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+			Settings.AutoExposureApplyPhysicalCameraExposure = false;
+			Settings.bOverride_AutoExposureBias = true;
+			Settings.AutoExposureBias = ExposureBias;
+		}
+	}
+
 	SetComponentTickEnabled(ShotTimes.Num() > 0 || BotSteps.Num() > 0);
 }
 
@@ -114,6 +132,22 @@ void UDevCapture::RunBotStep()
 	else if (Action == TEXT("left")) { BotMove = FVector2D(-1, 0); }
 	else if (Action == TEXT("right")) { BotMove = FVector2D(1, 0); }
 	else if (Action == TEXT("jump")) { Character->DoJumpStart(); }
+	else if (Action == TEXT("collectall"))
+	{
+		// cheat for checking the clear flow: every remaining coin counts as collected
+		if (ACoinDemoGameMode* GM = GetWorld()->GetAuthGameMode<ACoinDemoGameMode>())
+		{
+			for (TActorIterator<ACoinPickup> It(GetWorld()); It; ++It)
+			{
+				if (It->GetActorEnableCollision())
+				{
+					It->SetActorEnableCollision(false);
+					It->Destroy();
+					GM->CoinCollected();
+				}
+			}
+		}
+	}
 	else if (Action == TEXT("land")) { Character->DoJumpEnd(); }
 	else if (Action != TEXT("wait"))
 	{

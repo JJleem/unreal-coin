@@ -7,6 +7,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/World.h"
+#include "CoinDemoGameInstance.h"
 
 namespace CoinDemoHUD
 {
@@ -69,6 +70,22 @@ void ACoinDemoHUD::DrawHUD()
 		DrawRect(Gold, BarX, BarY, BarW * Collected / Total, BarH);
 	}
 
+	// restart hint, bottom right
+	DrawShadowedText(TEXT("R  재시작"), Dim, Canvas->ClipX - 40.0f * S, Canvas->ClipY - 40.0f * S, 0.8f * S, FVector2D(1.0f, 1.0f));
+
+	// stage title card for the first seconds
+	const float SinceStart = GetWorld()->GetTimeSeconds() - GM->GetStageStartTime();
+	if (SinceStart < 3.5f)
+	{
+		const float In = FMath::Clamp(SinceStart / 0.4f, 0.0f, 1.0f);
+		const float Out = FMath::Clamp((3.5f - SinceStart) / 0.8f, 0.0f, 1.0f);
+		const float Alpha = FMath::Min(In, Out);
+		const float CenterX = Canvas->ClipX * 0.5f, CenterY = Canvas->ClipY * 0.2f;
+		DrawShadowedText(FString::Printf(TEXT("STAGE %d"), GM->GetStageNumber()), FLinearColor(Gold.R, Gold.G, Gold.B, Alpha), CenterX, CenterY - 40.0f * S, 1.3f * S, FVector2D(0.5f, 0.5f));
+		DrawShadowedText(GM->GetStageName().ToString(), FLinearColor(1.0f, 1.0f, 1.0f, Alpha), CenterX, CenterY + 20.0f * S, 3.0f * S, FVector2D(0.5f, 0.5f));
+		DrawShadowedText(FString::Printf(TEXT("코인 %d개를 모두 모으세요"), Total), FLinearColor(1.0f, 1.0f, 1.0f, 0.75f * Alpha), CenterX, CenterY + 90.0f * S, 1.0f * S, FVector2D(0.5f, 0.5f));
+	}
+
 	// the first stage teaches the controls
 	if (GM->GetStageNumber() == 1 && !GM->IsStageCleared())
 	{
@@ -91,6 +108,29 @@ void ACoinDemoHUD::DrawHUD()
 			? FString::Printf(TEXT("%s   NEW RECORD!"), *Time)
 			: FString::Printf(TEXT("%s   %s"), *Time, bLast ? TEXT("Thanks for playing") : TEXT("Next stage..."));
 		DrawShadowedText(Line, GM->IsNewRecord() && GM->GetPreviousBestTime() >= 0.0f ? FLinearColor(Record.R, Record.G, Record.B, Alpha) : FLinearColor(1.0f, 1.0f, 1.0f, 0.8f * Alpha), CenterX, CenterY + 45.0f * S, 1.1f * S, FVector2D(0.5f, 0.5f));
+
+		// after the last stage, the whole run
+		const UCoinDemoGameInstance* Instance = GetGameInstance<UCoinDemoGameInstance>();
+		if (bLast && Instance && Instance->GetResults().Num() > 0)
+		{
+			const TArray<FStageResult>& Results = Instance->GetResults();
+			const float RowH = 34.0f * S, BoxW = 520.0f * S;
+			const float BoxH = (Results.Num() + 2) * RowH + 30.0f * S;
+			const float BoxX = CenterX - BoxW * 0.5f, BoxY = CenterY + 110.0f * S;
+			DrawRect(FLinearColor(Panel.R, Panel.G, Panel.B, Panel.A * Alpha), BoxX, BoxY, BoxW, BoxH);
+
+			float Y = BoxY + 15.0f * S;
+			for (const FStageResult& Result : Results)
+			{
+				DrawShadowedText(Result.Name.ToString(), FLinearColor(1.0f, 1.0f, 1.0f, 0.85f * Alpha), BoxX + 30.0f * S, Y, 0.95f * S);
+				DrawShadowedText(FormatTime(Result.Time), FLinearColor(1.0f, 1.0f, 1.0f, 0.85f * Alpha), BoxX + BoxW - 30.0f * S, Y, 0.95f * S, FVector2D(1.0f, 0.0f));
+				Y += RowH;
+			}
+			Y += 10.0f * S;
+			DrawRect(FLinearColor(Gold.R, Gold.G, Gold.B, 0.6f * Alpha), BoxX + 30.0f * S, Y - 6.0f * S, BoxW - 60.0f * S, 2.0f * S);
+			DrawShadowedText(TEXT("TOTAL"), FLinearColor(Gold.R, Gold.G, Gold.B, Alpha), BoxX + 30.0f * S, Y, 1.1f * S);
+			DrawShadowedText(FormatTime(Instance->GetTotalTime()), FLinearColor(Gold.R, Gold.G, Gold.B, Alpha), BoxX + BoxW - 30.0f * S, Y, 1.1f * S, FVector2D(1.0f, 0.0f));
+		}
 	}
 }
 

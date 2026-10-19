@@ -41,6 +41,7 @@ KEEP_CLEAR = 1.5            # radius kept open around coins and the start, metre
 WALL_BOTTOM, WALL_TOP = -1.0, 4.0  # wall extent relative to the local ground, metres
 BREAKABLE_MAX_AREA = 6.0    # free-standing blobs smaller than this (people, signs, bins) can be smashed, square metres
 BREAKABLE_TOP = 2.4         # height of a breakable barrier above the local ground, metres
+MAX_STEP_UP = 1.2           # tallest rise between neighbouring cells the player gets up without a ledge, metres
 COIN_HEIGHT = 1.0           # coin centre above the ground, metres
 
 
@@ -124,6 +125,43 @@ def boxes_of(mask, lo, cell_z, top):
                           lo[0] + (i + 1) * CELL, lo[1] + (k + 1) * CELL, z.max() + top])
             j = k + 1
     return boxes
+
+
+def reachable(open_cells, cell_z, start):
+    """Cells reachable from start through open neighbours, never stepping up more than MAX_STEP_UP."""
+    nx, ny = open_cells.shape
+    seen = np.zeros_like(open_cells)
+    if not (0 <= start[0] < nx and 0 <= start[1] < ny):
+        return seen
+    stack = [start]
+    seen[start] = True
+    while stack:
+        i, j = stack.pop()
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                a, b = i + di, j + dj
+                if 0 <= a < nx and 0 <= b < ny and open_cells[a, b] and not seen[a, b] \
+                        and cell_z[a, b] - cell_z[i, j] <= MAX_STEP_UP:
+                    seen[a, b] = True
+                    stack.append((a, b))
+    return seen
+
+
+def open_facing(open_cells, position, lo, directions=16, reach=8.0):
+    """Unreal yaw (degrees) to start facing: the camera sits behind the character, so prefer the direction with the
+    most open space behind, then in front."""
+    def free(angle):
+        d = np.array([np.cos(angle), np.sin(angle)])
+        for step in np.arange(CELL, reach, CELL / 2):
+            i, j = ((position + d * step - lo) // CELL).astype(int)
+            if not (0 <= i < open_cells.shape[0] and 0 <= j < open_cells.shape[1]) or not open_cells[i, j]:
+                return step
+        return reach
+
+    angles = np.arange(directions) * 2 * np.pi / directions
+    scores = [min(free(a + np.pi), 6.0) + 0.3 * free(a) for a in angles]
+    # Unreal yaw is measured from +X towards +Y, which is this same angle
+    return float(np.degrees(angles[int(np.argmax(scores))]))
 
 
 def floor_mesh(has_ground, cell_z, lo):
@@ -227,7 +265,22 @@ def build(folder):
 
     boxes = boxes_of(blocked, lo, cell_z, WALL_TOP)
 
+    # every coin must be reachable from the start: walk the open cells (breakables count as open, they can be
+    # smashed) and move coins that can't be reached to the nearest reachable cell
+    open_cells = has_ground & ~blocked
+    reach = reachable(open_cells, cell_z, (int((start[0, 0] - lo[0]) // CELL), int((start[0, 1] - lo[1]) // CELL)))
+    moved = 0
+    for c in range(len(coins)):
+        ci, cj = int((coins[c, 0] - lo[0]) // CELL), int((coins[c, 1] - lo[1]) // CELL)
+        if not reach[ci, cj]:
+            ri, rj = np.nonzero(reach)
+            k = np.argmin((ri - ci) ** 2 + (rj - cj) ** 2)
+            coins[c, :2] = lo[0] + (ri[k] + 0.5) * CELL, lo[1] + (rj[k] + 0.5) * CELL
+            keep_z[c] = cell_z[ri[k], rj[k]]
+            moved += 1
+
     floor_vertices, floor_indices = floor_mesh(has_ground, cell_z, lo)
+    start_yaw = open_facing(open_cells, start[0, :2], lo)
 
     cm = lambda a: (np.asarray(a) * 100.0).round(1).tolist()
     result = {
@@ -237,6 +290,7 @@ def build(folder):
         "walls": cm(boxes),
         "breakables": [cm(group) for group in breakables],
         "start": cm([start[0, 0], start[0, 1], keep_z[-1]]),
+        "startYaw": start_yaw,
         "coins": cm(np.column_stack([coins[:, :2], keep_z[:-1] + COIN_HEIGHT]))
     }
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -261,7 +315,7 @@ def build(folder):
     bump_raw = np.percentile(np.abs(raw_ground[:, 2] - np.median(raw_ground[:, 2])), 90)
     bump = np.percentile(np.abs(ground[:, 2] - np.median(ground[:, 2])), 90)
     print(f"{name:13s} scale x{SCALES.get(name, 1.0):.2f}  walkable {walkable.sum() * CELL * CELL:5.0f} m2  "
-          f"wall boxes {len(boxes):4d}  breakables {len(breakables):3d}  ground spread (p90) {bump_raw:.2f} m -> {bump:.2f} m")
+          f"wall boxes {len(boxes):4d}  breakables {len(breakables):3d}  coins moved {moved}  ground spread (p90) {bump_raw:.2f} m -> {bump:.2f} m")
 
 
 def main():

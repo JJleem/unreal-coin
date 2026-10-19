@@ -71,6 +71,9 @@ protected:
 	TObjectPtr<UInputAction> RollAction;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> RestartAction;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UInputMappingContext> TraversalMappingContext;
 
 public:
@@ -136,6 +139,10 @@ public:
 	/** Rolls forward */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoRoll();
+
+	/** Restarts the current stage */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoRestart();
 
 public:
 

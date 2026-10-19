@@ -35,6 +35,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Stages", meta = (ClampMin = 0))
 	float NextStageDelay = 3.0f;
 
+	/** Seconds the run summary stays up after the last stage before starting over */
+	UPROPERTY(EditDefaultsOnly, Category="Stages", meta = (ClampMin = 0))
+	float RestartDelay = 12.0f;
+
 	/** Number of coins placed in the current stage */
 	int32 TotalCoins = 0;
 
@@ -125,6 +129,13 @@ public:
 	/** World time of the last coin pickup */
 	float GetLastCoinTime() const { return LastCoinTime; }
 
+	/** World time when the stage started */
+	float GetStageStartTime() const { return StageStartTime; }
+
+	/** Reloads the current stage */
+	UFUNCTION(BlueprintCallable, Category="Stages")
+	void RestartStage();
+
 protected:
 
 	/** Counts the coins in the stage */
@@ -135,6 +146,9 @@ protected:
 
 	/** Opens the next stage */
 	void OpenNextStage();
+
+	/** Starts a new run from the first stage */
+	void OpenFirstStage();
 
 	/** Passes control to BP to update UI when a coin is collected */
 	UFUNCTION(BlueprintImplementableEvent, Category="Stages", meta = (DisplayName = "On Coin Collected"))

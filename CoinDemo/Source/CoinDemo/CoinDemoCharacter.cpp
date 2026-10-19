@@ -15,6 +15,7 @@
 #include "CharacterAppearanceComponent.h"
 #include "TraversalComponent.h"
 #include "BreakableBarrier.h"
+#include "CoinDemoGameMode.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "Engine/LocalPlayer.h"
@@ -80,6 +81,7 @@ void ACoinDemoCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &ACoinDemoCharacter::DoSprintEnd);
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Started, this, &ACoinDemoCharacter::DoCrouch);
 		EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Started, this, &ACoinDemoCharacter::DoRoll);
+		EnhancedInputComponent->BindAction(RestartAction, ETriggerEvent::Started, this, &ACoinDemoCharacter::DoRestart);
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ACoinDemoCharacter::Move);
@@ -215,6 +217,14 @@ void ACoinDemoCharacter::DoRoll()
 	Traversal->TryRoll();
 }
 
+void ACoinDemoCharacter::DoRestart()
+{
+	if (ACoinDemoGameMode* GM = GetWorld()->GetAuthGameMode<ACoinDemoGameMode>())
+	{
+		GM->RestartStage();
+	}
+}
+
 void ACoinDemoCharacter::CreateTraversalInput()
 {
 	if (TraversalMappingContext)
@@ -231,6 +241,7 @@ void ACoinDemoCharacter::CreateTraversalInput()
 	SprintAction = MakeAction(TEXT("IA_Sprint"));
 	CrouchAction = MakeAction(TEXT("IA_Crouch"));
 	RollAction = MakeAction(TEXT("IA_Roll"));
+	RestartAction = MakeAction(TEXT("IA_Restart"));
 
 	TraversalMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Traversal"));
 	TraversalMappingContext->MapKey(SprintAction, EKeys::LeftShift);
@@ -240,6 +251,8 @@ void ACoinDemoCharacter::CreateTraversalInput()
 	TraversalMappingContext->MapKey(CrouchAction, EKeys::Gamepad_FaceButton_Right);
 	TraversalMappingContext->MapKey(RollAction, EKeys::Q);
 	TraversalMappingContext->MapKey(RollAction, EKeys::Gamepad_FaceButton_Left);
+	TraversalMappingContext->MapKey(RestartAction, EKeys::R);
+	TraversalMappingContext->MapKey(RestartAction, EKeys::Gamepad_Special_Left);
 }
 
 void ACoinDemoCharacter::NotifyControllerChanged()
