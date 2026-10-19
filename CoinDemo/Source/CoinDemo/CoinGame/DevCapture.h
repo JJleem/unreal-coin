@@ -14,6 +14,7 @@
  *    -ShotPitch=-10       camera pitch for the shots
  *    -Bot=fwd:2,jump,...  play a scripted input sequence on the player: fwd/back/left/right/coin/smash/collectall/wait/jump/land
  *                         or any parameterless character function (DoRoll, DoCrouch...), each optionally ":seconds"
+ *    -StartAt=x,y,z,yaw   put the player here when play starts
  *    -LightScale=0.5      multiply the intensity of every light in the level
  *    -ExposureBias=1      switch post process volumes to manual exposure with this bias
  *    -QuitAfterShots      exit after the last screenshot
@@ -51,6 +52,9 @@ class UDevCapture : public UActorComponent
 
 	/** Character yaw when the bot started; bot movement and the camera angle are relative to it */
 	TOptional<float> BaseYaw;
+
+	/** -StartAt=x,y,z[,yaw]: where to put the player when play starts */
+	TOptional<FTransform> StartTransform;
 
 	/** Camera override from the command line */
 	TOptional<float> ShotYaw;

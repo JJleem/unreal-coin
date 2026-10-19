@@ -57,6 +57,18 @@ void UDevCapture::BeginPlay()
 	FParse::Value(CommandLine, TEXT("ShotPitch="), ShotPitch);
 	bQuitAfterShots = FParse::Param(CommandLine, TEXT("QuitAfterShots"));
 
+	FString Start;
+	if (FParse::Value(CommandLine, TEXT("StartAt="), Start, false))
+	{
+		TArray<FString> Parts;
+		Start.ParseIntoArray(Parts, TEXT(","));
+		if (Parts.Num() >= 3)
+		{
+			StartTransform = FTransform(FRotator(0.0f, Parts.Num() > 3 ? FCString::Atof(*Parts[3]) : 0.0f, 0.0f),
+				FVector(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2])));
+		}
+	}
+
 	FString Bot;
 	if (FParse::Value(CommandLine, TEXT("Bot="), Bot, false))
 	{
@@ -100,7 +112,7 @@ void UDevCapture::BeginPlay()
 		}
 	}
 
-	SetComponentTickEnabled(ShotTimes.Num() > 0 || BotSteps.Num() > 0);
+	SetComponentTickEnabled(ShotTimes.Num() > 0 || BotSteps.Num() > 0 || StartTransform.IsSet());
 }
 
 void UDevCapture::RunBotStep()
@@ -173,6 +185,15 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 	const float Now = GetWorld()->GetTimeSeconds();
 	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
 	ACoinDemoCharacter* Character = Cast<ACoinDemoCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0));
+
+	// move the player to the requested start once it exists
+	if (StartTransform.IsSet() && Character && PC)
+	{
+		Character->TeleportTo(StartTransform->GetLocation(), StartTransform->Rotator());
+		PC->SetControlRotation(StartTransform->Rotator());
+		BaseYaw = StartTransform->Rotator().Yaw;
+		StartTransform.Reset();
+	}
 
 	// scripted input
 	if (BotSteps.Num() > 0 && Character)
