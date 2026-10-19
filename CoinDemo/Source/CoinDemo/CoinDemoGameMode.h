@@ -6,6 +6,8 @@
 #include "GameFramework/GameModeBase.h"
 #include "CoinDemoGameMode.generated.h"
 
+class USoundBase;
+
 /**
  *  Simple GameMode for a third person game
  *  Counts the coins in the current stage and opens the next stage once all of them are collected
@@ -41,6 +43,32 @@ protected:
 
 	/** World time when the stage was cleared, or a negative value while it is in progress */
 	float StageClearedTime = -1.0f;
+
+	/** World time when the stage started */
+	float StageStartTime = 0.0f;
+
+	/** World time of the last coin pickup, for UI feedback */
+	float LastCoinTime = -100.0f;
+
+	/** Best clear time of this stage before this run, or a negative value if it was never cleared */
+	float PreviousBestTime = -1.0f;
+
+	/** True when this run set a new best time */
+	bool bNewRecord = false;
+
+	UPROPERTY(EditDefaultsOnly, Category="Stages|Audio")
+	TObjectPtr<USoundBase> ClearSound;
+
+	UPROPERTY(EditDefaultsOnly, Category="Stages|Audio")
+	TObjectPtr<USoundBase> RecordSound;
+
+	/** A player this far below their start has fallen out of the scan and is put back */
+	UPROPERTY(EditDefaultsOnly, Category="Stages", meta = (Units = "cm"))
+	float FallLimit = 2000.0f;
+
+	/** Receives the player position every frame, so barriers can reveal themselves near the player */
+	UPROPERTY(EditDefaultsOnly, Category="Stages")
+	TObjectPtr<class UMaterialParameterCollection> BarrierParameters;
 
 	/** Timer that opens the next stage */
 	FTimerHandle NextStageTimer;
@@ -84,10 +112,26 @@ public:
 	/** Returns the world time when the stage was cleared, or a negative value while it is in progress */
 	float GetStageClearedTime() const { return StageClearedTime; }
 
+	/** Seconds spent in this stage, frozen once it is cleared */
+	UFUNCTION(BlueprintPure, Category="Stages")
+	float GetElapsedTime() const;
+
+	/** Best clear time before this run, or a negative value if the stage was never cleared */
+	float GetPreviousBestTime() const { return PreviousBestTime; }
+
+	/** True when this run beat the previous best time */
+	bool IsNewRecord() const { return bNewRecord; }
+
+	/** World time of the last coin pickup */
+	float GetLastCoinTime() const { return LastCoinTime; }
+
 protected:
 
 	/** Counts the coins in the stage */
 	virtual void BeginPlay() override;
+
+	/** Feeds the player position to the barrier material */
+	virtual void Tick(float DeltaSeconds) override;
 
 	/** Opens the next stage */
 	void OpenNextStage();

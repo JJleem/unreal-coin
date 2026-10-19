@@ -11,6 +11,8 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 ACoinPickup::ACoinPickup()
 {
@@ -46,6 +48,9 @@ ACoinPickup::ACoinPickup()
 		Mesh->SetMaterial(0, ShapeMaterial.Object);
 	}
 
+	static ConstructorHelpers::FObjectFinder<USoundBase> Chime(TEXT("/Game/Audio/SFX_Coin.SFX_Coin"));
+	CollectSound = Chime.Object;
+
 	// add the overlap handler
 	OnActorBeginOverlap.AddDynamic(this, &ACoinPickup::BeginOverlap);
 }
@@ -64,6 +69,21 @@ void ACoinPickup::OnConstruction(const FTransform& Transform)
 void ACoinPickup::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// collected: spin fast, pop up and shrink away
+	if (CollectedTime >= 0.0f)
+	{
+		CollectedTime += DeltaTime;
+		const float Alpha = FMath::Clamp(CollectedTime / CollectDuration, 0.0f, 1.0f);
+		AddActorLocalRotation(FRotator(0.0f, RotationSpeed * 6.0f * DeltaTime, 0.0f));
+		Mesh->SetRelativeLocation(FVector(0.0f, 0.0f, 120.0f * FMath::Sin(Alpha * UE_HALF_PI)));
+		Mesh->SetRelativeScale3D(FVector(0.6f, 0.6f, 0.08f) * FMath::Lerp(1.4f, 0.0f, Alpha * Alpha));
+		if (Alpha >= 1.0f)
+		{
+			Destroy();
+		}
+		return;
+	}
 
 	// spin around the vertical axis, scaled by frame time so the speed is frame rate independent
 	AddActorLocalRotation(FRotator(0.0f, RotationSpeed * DeltaTime, 0.0f));
@@ -94,7 +114,13 @@ void ACoinPickup::BeginOverlap(AActor* OverlappedActor, AActor* OtherActor)
 		GM->CoinCollected();
 	}
 
+	if (CollectSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, CollectSound, GetActorLocation());
+	}
+
 	BP_OnCollected();
 
-	Destroy();
+	// Tick plays the collect animation and destroys the coin
+	CollectedTime = 0.0f;
 }

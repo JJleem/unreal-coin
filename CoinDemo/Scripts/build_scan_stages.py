@@ -37,8 +37,15 @@ SPLAT_SH_ORDER_OVERRIDE = {"Gwanghwamun": 3, "JejuPier": 3}
 SPLAT_SORT_EVERY_NTH_FRAME = 1
 
 # Character lighting in lux / sky light scale
-SUN_INTENSITY = 1.5
-SKY_INTENSITY = 0.35
+SUN_INTENSITY = 0.8
+SKY_INTENSITY = 0.2
+
+# Walls and breakable barriers are drawn with a cyan grid that only shows within a few metres of the player
+BARRIER_COLLECTION = "/Game/Stages/Common/MPC_Barrier"
+BARRIER_MATERIAL = "/Game/Stages/Common/M_Barrier"
+BARRIER_REVEAL_DISTANCE = 260.0
+BARRIER_CAMERA_FADE = (60.0, 220.0)  # fade out between these distances from the camera, so a wall the camera is pushed into stays see-through
+BARRIER_GRID = 40.0
 
 # Nothing is drawn behind the scans on purpose: their floors and walls are built from many faint splats, so
 # whatever is behind shows through. The sky atmosphere's dark ground below the horizon matches what the scans
@@ -170,13 +177,130 @@ def spawn(actors, cls, location, rotation=unreal.Rotator(0, 0, 0), label=None):
     return actor
 
 
-def spawn_collision(actors, mesh, label):
+def make_box(b):
+    """[minx, miny, minz, maxx, maxy, maxz] -> unreal.Box"""
+    box = unreal.Box()
+    box.set_editor_property("min", vec(b[:3]))
+    box.set_editor_property("max", vec(b[3:]))
+    box.set_editor_property("is_valid", True)
+    return box
+
+
+def spawn_collision(actors, mesh, label, material=None):
     actor = spawn(actors, unreal.StaticMeshActor, unreal.Vector(0, 0, 0), label=label)
     component = actor.static_mesh_component
     component.set_static_mesh(mesh)
     component.set_collision_profile_name("BlockAll")
-    actor.set_actor_hidden_in_game(True)
+    if material:
+        component.set_material(0, material)
+        component.set_cast_shadow(False)
+    else:
+        actor.set_actor_hidden_in_game(True)
     return actor
+
+
+def barrier_material():
+    """Translucent cyan grid whose opacity fades in as the player (MPC_Barrier.PlayerPosition) gets close."""
+    asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+    mel = unreal.MaterialEditingLibrary
+
+    if unreal.EditorAssetLibrary.does_asset_exist(BARRIER_COLLECTION):
+        collection = unreal.load_asset(BARRIER_COLLECTION)
+    else:
+        folder, name = BARRIER_COLLECTION.rsplit("/", 1)
+        collection = asset_tools.create_asset(name, folder, unreal.MaterialParameterCollection, unreal.MaterialParameterCollectionFactoryNew())
+        param = unreal.CollectionVectorParameter()
+        param.set_editor_property("parameter_name", "PlayerPosition")
+        collection.set_editor_property("vector_parameters", [param])
+        unreal.EditorAssetLibrary.save_loaded_asset(collection)
+
+    if unreal.EditorAssetLibrary.does_asset_exist(BARRIER_MATERIAL):
+        unreal.EditorAssetLibrary.delete_asset(BARRIER_MATERIAL)
+    folder, name = BARRIER_MATERIAL.rsplit("/", 1)
+    material = asset_tools.create_asset(name, folder, unreal.Material, unreal.MaterialFactoryNew())
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    material.set_editor_property("two_sided", True)
+
+    def node(cls, x, y, **props):
+        expression = mel.create_material_expression(material, cls, x, y)
+        for key, value in props.items():
+            expression.set_editor_property(key, value)
+        return expression
+
+    def link(a, b, pin="", out=""):
+        mel.connect_material_expressions(a, out, b, pin)
+
+    world = node(unreal.MaterialExpressionWorldPosition, -1400, 0)
+    player = node(unreal.MaterialExpressionCollectionParameter, -1400, 300, collection=collection, parameter_name="PlayerPosition")
+    player_xyz = node(unreal.MaterialExpressionComponentMask, -1200, 300, r=True, g=True, b=True, a=False)
+    link(player, player_xyz)
+
+    # proximity: (1 - saturate(distance / reveal))^2
+    distance = node(unreal.MaterialExpressionDistance, -1000, 200)
+    link(world, distance, "A")
+    link(player_xyz, distance, "B")
+    scaled = node(unreal.MaterialExpressionDivide, -850, 200, const_b=BARRIER_REVEAL_DISTANCE)
+    link(distance, scaled, "A")
+    clamped = node(unreal.MaterialExpressionSaturate, -700, 200)
+    link(scaled, clamped)
+    near = node(unreal.MaterialExpressionOneMinus, -550, 200)
+    link(clamped, near)
+    falloff = node(unreal.MaterialExpressionMultiply, -400, 200)
+    link(near, falloff, "A")
+    link(near, falloff, "B")
+
+    # grid lines every BARRIER_GRID cm on all three axes
+    cells = node(unreal.MaterialExpressionDivide, -1200, -200, const_b=BARRIER_GRID)
+    link(world, cells, "A")
+    frac = node(unreal.MaterialExpressionFrac, -1050, -200)
+    link(cells, frac)
+    centred = node(unreal.MaterialExpressionSubtract, -900, -200, const_b=0.5)
+    link(frac, centred, "A")
+    folded = node(unreal.MaterialExpressionAbs, -750, -200)
+    link(centred, folded)
+    channels = [node(unreal.MaterialExpressionComponentMask, -600, -300 + i * 100, r=i == 0, g=i == 1, b=i == 2, a=False) for i in range(3)]
+    for channel in channels:
+        link(folded, channel)
+    max_xy = node(unreal.MaterialExpressionMax, -450, -250)
+    link(channels[0], max_xy, "A")
+    link(channels[1], max_xy, "B")
+    max_xyz = node(unreal.MaterialExpressionMax, -300, -200)
+    link(max_xy, max_xyz, "A")
+    link(channels[2], max_xyz, "B")
+    edge = node(unreal.MaterialExpressionSubtract, -150, -200, const_b=0.44)
+    link(max_xyz, edge, "A")
+    sharpen = node(unreal.MaterialExpressionMultiply, 0, -200, const_b=16.0)
+    link(edge, sharpen, "A")
+    line = node(unreal.MaterialExpressionSaturate, 150, -200)
+    link(sharpen, line)
+
+    # opacity: faint fill plus bright lines, all scaled by proximity
+    lit = node(unreal.MaterialExpressionLinearInterpolate, 300, 0, const_a=0.0, const_b=0.22)
+    link(line, lit, "Alpha")
+    opacity = node(unreal.MaterialExpressionMultiply, 450, 100)
+    link(lit, opacity, "A")
+    link(falloff, opacity, "B")
+
+    # and away from the camera
+    depth = node(unreal.MaterialExpressionPixelDepth, 300, 300)
+    depth_offset = node(unreal.MaterialExpressionSubtract, 450, 300, const_b=BARRIER_CAMERA_FADE[0])
+    link(depth, depth_offset, "A")
+    depth_scaled = node(unreal.MaterialExpressionDivide, 600, 300, const_b=BARRIER_CAMERA_FADE[1] - BARRIER_CAMERA_FADE[0])
+    link(depth_offset, depth_scaled, "A")
+    depth_fade = node(unreal.MaterialExpressionSaturate, 750, 300)
+    link(depth_scaled, depth_fade)
+    faded = node(unreal.MaterialExpressionMultiply, 900, 150)
+    link(opacity, faded, "A")
+    link(depth_fade, faded, "B")
+    mel.connect_material_property(faded, "", unreal.MaterialProperty.MP_OPACITY)
+
+    color = node(unreal.MaterialExpressionConstant3Vector, 300, -350, constant=unreal.LinearColor(0.15, 0.55, 1.0, 1.0))
+    mel.connect_material_property(color, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+    mel.recompile_material(material)
+    unreal.EditorAssetLibrary.save_loaded_asset(material)
+    return material
 
 
 def build_stage(folder):
@@ -214,7 +338,13 @@ def build_stage(folder):
     splat_actor.set_actor_scale3d(unreal.Vector(mpu, mpu, mpu))
 
     spawn_collision(actors, ground_mesh, "Ground_Collision")
-    spawn_collision(actors, wall_mesh, "Wall_Collision")
+    barrier = barrier_material()
+    spawn_collision(actors, wall_mesh, "Walls", barrier)
+
+    # small free-standing obstacles can be smashed by running, rolling or sliding into them
+    for i, group in enumerate(data.get("breakables", []), start=1):
+        actor = spawn(actors, unreal.BreakableBarrier, vec(group[0][:3]), label=f"Breakable_{i:02d}")
+        actor.set_boxes([make_box(b) for b in group])
 
     # lighting for the character only (the splats carry their own baked color), kept soft so the character
     # sits in the photographed scene instead of glowing white
@@ -247,7 +377,8 @@ def build_stage(folder):
             actor.set_editor_property("kill_z", lowest - 1000.0)
 
     levels.save_current_level()
-    unreal.log(f"[ScanStages] Saved {level_path}: {len(data['coins'])} coins, {len(data['walls'])} wall boxes")
+    unreal.log(f"[ScanStages] Saved {level_path}: {len(data['coins'])} coins, {len(data['walls'])} wall boxes, "
+               f"{len(data.get('breakables', []))} breakables")
 
 
 def main():

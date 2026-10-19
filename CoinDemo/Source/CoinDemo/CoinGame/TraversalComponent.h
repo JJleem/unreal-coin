@@ -33,8 +33,9 @@ class UTraversalComponent : public UActorComponent
 
 protected:
 
+	/** Sprinting uses the anim blueprint's run, which tops out around this speed without foot sliding */
 	UPROPERTY(EditAnywhere, Category="Traversal|Speed", meta = (Units = "cm/s"))
-	float SprintSpeed = 800.0f;
+	float SprintSpeed = 750.0f;
 
 	UPROPERTY(EditAnywhere, Category="Traversal|Speed", meta = (Units = "cm/s"))
 	float CrouchSpeed = 220.0f;
@@ -74,9 +75,6 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category="Traversal|Animation")
 	TObjectPtr<UAnimSequence> CrouchMoveAnim;
-
-	UPROPERTY(EditAnywhere, Category="Traversal|Animation")
-	TObjectPtr<UAnimSequence> SprintAnim;
 
 	UPROPERTY(EditAnywhere, Category="Traversal|Animation")
 	TObjectPtr<UAnimSequence> SlideStartAnim;

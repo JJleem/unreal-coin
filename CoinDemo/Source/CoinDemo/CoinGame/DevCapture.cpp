@@ -4,6 +4,11 @@
 #include "DevCapture.h"
 #include "CoinDemo.h"
 #include "CoinDemoCharacter.h"
+#include "CoinPickup.h"
+#include "BreakableBarrier.h"
+#include "EngineUtils.h"
+#include "Components/LightComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
@@ -56,6 +61,27 @@ void UDevCapture::BeginPlay()
 		Bot.ParseIntoArray(BotSteps, TEXT(","));
 	}
 
+	// scale every light in the level, to try lighting values without rebuilding the stages
+	float LightScale = 1.0f;
+	if (FParse::Value(CommandLine, TEXT("LightScale="), LightScale))
+	{
+		for (TObjectIterator<ULightComponentBase> It; It; ++It)
+		{
+			if (It->GetWorld() != GetWorld())
+			{
+				continue;
+			}
+			if (ULightComponent* Light = Cast<ULightComponent>(*It))
+			{
+				Light->SetIntensity(Light->Intensity * LightScale);
+			}
+			else if (USkyLightComponent* Sky = Cast<USkyLightComponent>(*It))
+			{
+				Sky->SetIntensity(Sky->Intensity * LightScale);
+			}
+		}
+	}
+
 	SetComponentTickEnabled(ShotTimes.Num() > 0 || BotSteps.Num() > 0);
 }
 
@@ -80,7 +106,10 @@ void UDevCapture::RunBotStep()
 
 	UE_LOG(LogCoinDemo, Log, TEXT("Bot: %s for %.1fs at %s"), *Action, BotStepTime, *Character->GetActorLocation().ToCompactString());
 
-	if (Action == TEXT("fwd")) { BotMove = FVector2D(0, 1); }
+	bSeekCoin = Action == TEXT("coin");
+	bSeekBarrier = Action == TEXT("smash");
+	if (bSeekCoin || bSeekBarrier) {}
+	else if (Action == TEXT("fwd")) { BotMove = FVector2D(0, 1); }
 	else if (Action == TEXT("back")) { BotMove = FVector2D(0, -1); }
 	else if (Action == TEXT("left")) { BotMove = FVector2D(-1, 0); }
 	else if (Action == TEXT("right")) { BotMove = FVector2D(1, 0); }
@@ -123,7 +152,45 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 		{
 			BaseYaw = Character->GetActorRotation().Yaw;
 		}
-		if (!BotMove.IsZero())
+		if (bSeekCoin || bSeekBarrier)
+		{
+			// walk straight at the nearest coin still up for grabs, or the nearest breakable barrier
+			const AActor* Nearest = nullptr;
+			FVector Target = FVector::ZeroVector;
+			float NearestDistance = TNumericLimits<float>::Max();
+			auto Consider = [&](const AActor* Actor, const FVector& Location)
+			{
+				const float Distance = FVector::DistSquared2D(Location, Character->GetActorLocation());
+				if (Distance < NearestDistance)
+				{
+					Nearest = Actor;
+					Target = Location;
+					NearestDistance = Distance;
+				}
+			};
+			if (bSeekCoin)
+			{
+				for (TActorIterator<ACoinPickup> It(GetWorld()); It; ++It)
+				{
+					if (It->GetActorEnableCollision())
+					{
+						Consider(*It, It->GetActorLocation());
+					}
+				}
+			}
+			else
+			{
+				for (TActorIterator<ABreakableBarrier> It(GetWorld()); It; ++It)
+				{
+					Consider(*It, It->GetComponentsBoundingBox().GetCenter());
+				}
+			}
+			if (Nearest)
+			{
+				Character->AddMovementInput((Target - Character->GetActorLocation()).GetSafeNormal2D());
+			}
+		}
+		else if (!BotMove.IsZero())
 		{
 			// fixed world directions, so turning the camera for screenshots doesn't steer the bot
 			const FRotator Base(0.0f, BaseYaw.GetValue(), 0.0f);

@@ -14,6 +14,14 @@ namespace CoinDemoHUD
 	const FLinearColor Gold(1.0f, 0.75f, 0.1f);
 	const FLinearColor Dim(1.0f, 1.0f, 1.0f, 0.6f);
 	const FLinearColor BarBack(1.0f, 1.0f, 1.0f, 0.15f);
+	const FLinearColor Record(0.45f, 1.0f, 0.55f);
+
+	/** 1:23.45 */
+	FString FormatTime(float Seconds)
+	{
+		const int32 Minutes = FMath::FloorToInt(Seconds / 60.0f);
+		return FString::Printf(TEXT("%d:%05.2f"), Minutes, Seconds - Minutes * 60.0f);
+	}
 }
 
 void ACoinDemoHUD::DrawHUD()
@@ -40,7 +48,18 @@ void ACoinDemoHUD::DrawHUD()
 
 	DrawShadowedText(FString::Printf(TEXT("STAGE %d / %d"), GM->GetStageNumber(), GM->GetStageCount()), Dim, PanelX + 30.0f * S, PanelY + 18.0f * S, 0.9f * S);
 	DrawShadowedText(GM->GetStageName().ToString(), FLinearColor::White, PanelX + 30.0f * S, PanelY + 44.0f * S, 1.5f * S);
-	DrawShadowedText(FString::Printf(TEXT("COINS  %d / %d"), Collected, Total), Gold, PanelX + 30.0f * S, PanelY + 96.0f * S, 1.1f * S);
+	// the coin counter pops briefly when a coin is collected
+	const float SinceCoin = GetWorld()->GetTimeSeconds() - GM->GetLastCoinTime();
+	const float Pop = SinceCoin < 0.35f ? 1.0f + 0.35f * FMath::Sin(SinceCoin / 0.35f * PI) : 1.0f;
+	DrawShadowedText(FString::Printf(TEXT("COINS  %d / %d"), Collected, Total), Pop > 1.0f ? FLinearColor::White : Gold, PanelX + 30.0f * S, PanelY + 96.0f * S, 1.1f * S * Pop);
+
+	// stage timer and best time, top right of the panel
+	const float Best = GM->GetPreviousBestTime();
+	DrawShadowedText(FormatTime(GM->GetElapsedTime()), FLinearColor::White, PanelX + PanelW - 24.0f * S, PanelY + 18.0f * S, 1.0f * S, FVector2D(1.0f, 0.0f));
+	if (Best >= 0.0f)
+	{
+		DrawShadowedText(FString::Printf(TEXT("BEST %s"), *FormatTime(Best)), Dim, PanelX + PanelW - 24.0f * S, PanelY + 100.0f * S, 0.8f * S, FVector2D(1.0f, 0.0f));
+	}
 
 	// coin progress bar along the bottom of the panel
 	const float BarX = PanelX + 30.0f * S, BarY = PanelY + PanelH - 14.0f * S, BarW = PanelW - 60.0f * S, BarH = 5.0f * S;
@@ -67,7 +86,11 @@ void ACoinDemoHUD::DrawHUD()
 
 		const bool bLast = GM->IsLastStage();
 		DrawShadowedText(bLast ? TEXT("ALL STAGES CLEAR!") : TEXT("STAGE CLEAR!"), FLinearColor(Gold.R, Gold.G, Gold.B, Alpha), CenterX, CenterY - 20.0f * S, 3.0f * S, FVector2D(0.5f, 0.5f));
-		DrawShadowedText(bLast ? FString(TEXT("Thanks for playing")) : FString(TEXT("Next stage...")), FLinearColor(1.0f, 1.0f, 1.0f, 0.8f * Alpha), CenterX, CenterY + 45.0f * S, 1.1f * S, FVector2D(0.5f, 0.5f));
+		const FString Time = FString::Printf(TEXT("TIME %s"), *FormatTime(GM->GetElapsedTime()));
+		const FString Line = GM->IsNewRecord() && GM->GetPreviousBestTime() >= 0.0f
+			? FString::Printf(TEXT("%s   NEW RECORD!"), *Time)
+			: FString::Printf(TEXT("%s   %s"), *Time, bLast ? TEXT("Thanks for playing") : TEXT("Next stage..."));
+		DrawShadowedText(Line, GM->IsNewRecord() && GM->GetPreviousBestTime() >= 0.0f ? FLinearColor(Record.R, Record.G, Record.B, Alpha) : FLinearColor(1.0f, 1.0f, 1.0f, 0.8f * Alpha), CenterX, CenterY + 45.0f * S, 1.1f * S, FVector2D(0.5f, 0.5f));
 	}
 }
 

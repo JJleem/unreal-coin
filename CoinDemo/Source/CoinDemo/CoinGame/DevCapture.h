@@ -12,7 +12,9 @@
  *    -ShotName=stage1     file name prefix, written to Saved/Screenshots/<platform>/
  *    -ShotYaw=180         rotate the camera around the player before the first shot (180 = look at the face)
  *    -ShotPitch=-10       camera pitch for the shots
- *    -Bot=run,jump,...    play a scripted input sequence on the player, see UDevCapture::RunBotStep
+ *    -Bot=fwd:2,jump,...  play a scripted input sequence on the player: fwd/back/left/right/coin/smash/wait/jump/land
+ *                         or any parameterless character function (DoRoll, DoCrouch...), each optionally ":seconds"
+ *    -LightScale=0.5      multiply the intensity of every light in the level
  *    -QuitAfterShots      exit after the last screenshot
  *  Does nothing without those arguments, so it is safe to leave on the GameMode.
  */
@@ -35,6 +37,10 @@ class UDevCapture : public UActorComponent
 
 	/** Time left in the current bot step */
 	float BotStepTime = 0.0f;
+
+	/** True while the current bot step walks toward the nearest coin, or the nearest breakable barrier */
+	bool bSeekCoin = false;
+	bool bSeekBarrier = false;
 
 	/** Movement input applied every frame by the current bot step */
 	FVector2D BotMove = FVector2D::ZeroVector;

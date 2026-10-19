@@ -3,6 +3,7 @@
 #include "CoinDemoCharacter.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -13,6 +14,7 @@
 #include "CoinDemo.h"
 #include "CharacterAppearanceComponent.h"
 #include "TraversalComponent.h"
+#include "BreakableBarrier.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "Engine/LocalPlayer.h"
@@ -47,6 +49,9 @@ ACoinDemoCharacter::ACoinDemoCharacter()
 	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->TargetArmLength = 400.0f;
 	CameraBoom->bUsePawnControlRotation = true;
+	CameraBoom->SocketOffset = FVector(0.0f, 0.0f, 40.0f);
+	CameraBoom->bEnableCameraLag = true;
+	CameraBoom->CameraLagSpeed = 12.0f;
 
 	// Create a follow camera
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
@@ -177,6 +182,19 @@ void ACoinDemoCharacter::FellOutOfWorld(const UDamageType& DmgType)
 	Super::FellOutOfWorld(DmgType);
 }
 
+void ACoinDemoCharacter::MoveBlockedBy(const FHitResult& Impact)
+{
+	Super::MoveBlockedBy(Impact);
+
+	// running speed, a roll or a slide breaks through barriers; walking into them just stops
+	ABreakableBarrier* Barrier = Cast<ABreakableBarrier>(Impact.GetActor());
+	const ETraversalAction Action = Traversal->GetAction();
+	if (Barrier && (GetVelocity().Size2D() > 600.0f || Action == ETraversalAction::Roll || Action == ETraversalAction::Slide))
+	{
+		Barrier->Smash(GetActorForwardVector() * 800.0f);
+	}
+}
+
 void ACoinDemoCharacter::DoSprintStart()
 {
 	Traversal->SetSprinting(true);
@@ -231,6 +249,13 @@ void ACoinDemoCharacter::NotifyControllerChanged()
 	CreateTraversalInput();
 	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
+		// scans fall apart when seen from ground level, so keep the camera above the character
+		if (PC->PlayerCameraManager)
+		{
+			PC->PlayerCameraManager->ViewPitchMin = -70.0f;
+			PC->PlayerCameraManager->ViewPitchMax = 15.0f;
+		}
+
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
 		{
 			Subsystem->AddMappingContext(TraversalMappingContext, 1);

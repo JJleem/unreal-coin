@@ -83,6 +83,9 @@ protected:
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
+	/** Smashes breakable barriers the character runs, rolls or slides into */
+	virtual void MoveBlockedBy(const FHitResult& Impact) override;
+
 	/** Adds the traversal key mappings for the local player */
 	virtual void NotifyControllerChanged() override;
 

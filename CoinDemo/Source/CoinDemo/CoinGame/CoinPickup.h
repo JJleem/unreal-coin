@@ -8,6 +8,7 @@
 
 class USphereComponent;
 class UStaticMeshComponent;
+class USoundBase;
 
 /**
  *  A spinning coin that the player collects by touching it
@@ -43,6 +44,17 @@ protected:
 	/** Color applied to the coin mesh */
 	UPROPERTY(EditAnywhere, Category="Coin")
 	FLinearColor CoinColor = FLinearColor(1.0f, 0.7f, 0.05f);
+
+	/** Played where the coin is collected */
+	UPROPERTY(EditAnywhere, Category="Coin")
+	TObjectPtr<USoundBase> CollectSound;
+
+	/** Length of the fly-up-and-vanish animation after collection */
+	UPROPERTY(EditAnywhere, Category="Coin", meta = (Units = "s"))
+	float CollectDuration = 0.45f;
+
+	/** Seconds since collection, or a negative value while the coin is waiting */
+	float CollectedTime = -1.0f;
 
 public:
 

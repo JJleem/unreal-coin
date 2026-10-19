@@ -9,7 +9,8 @@ Prepares gameplay geometry for the ANNX scans, in Unreal space (centimetres, Z u
 
 Output per stage, read by build_scan_stages.py:
   generated/<Name>_collision.json
-  generated/<Name>_collision.png   top-down debug view: grey ground, red walls, yellow coins, blue start (+X up)
+  generated/<Name>_collision.png   top-down debug view: grey ground, red walls, orange breakables, yellow coins,
+                                   blue start (+X up)
 
 Needs numpy, scipy and Pillow, so it runs outside Unreal:
   python make_scan_collision.py
@@ -38,6 +39,8 @@ MIN_WALL_AREA = 1.5         # blocked blobs smaller than this are dropped, squar
 GROUND_REACH = 1.5          # a cell without a ground vertex this close is off the map, metres
 KEEP_CLEAR = 1.5            # radius kept open around coins and the start, metres
 WALL_BOTTOM, WALL_TOP = -1.0, 4.0  # wall extent relative to the local ground, metres
+BREAKABLE_MAX_AREA = 6.0    # free-standing blobs smaller than this (people, signs, bins) can be smashed, square metres
+BREAKABLE_TOP = 2.4         # height of a breakable barrier above the local ground, metres
 COIN_HEIGHT = 1.0           # coin centre above the ground, metres
 
 
@@ -103,6 +106,60 @@ def ground_height_at(ground, points_xy):
     return z, dist
 
 
+def boxes_of(mask, lo, cell_z, top):
+    """Merges runs of cells along Y into boxes [minx, miny, minz, maxx, maxy, maxz] in metres."""
+    boxes = []
+    nx, ny = mask.shape
+    for i in range(nx):
+        j = 0
+        while j < ny:
+            if not mask[i, j]:
+                j += 1
+                continue
+            k = j
+            while k + 1 < ny and mask[i, k + 1]:
+                k += 1
+            z = cell_z[i, j:k + 1]
+            boxes.append([lo[0] + i * CELL, lo[1] + j * CELL, z.min() + WALL_BOTTOM,
+                          lo[0] + (i + 1) * CELL, lo[1] + (k + 1) * CELL, z.max() + top])
+            j = k + 1
+    return boxes
+
+
+def floor_mesh(has_ground, cell_z, lo):
+    """Walkable floor without holes: a height field over the ground cells (grown under the walls' feet),
+    with corner heights averaged from the neighbouring cells. Returns (vertices in metres, triangle indices)."""
+    cells = ndimage.binary_dilation(has_ground, structure=np.ones((3, 3)), iterations=2)
+    nx, ny = cells.shape
+
+    # average the ground heights of the (up to four) ground cells around each corner
+    z = np.where(has_ground, cell_z, 0.0)
+    w = has_ground.astype(float)
+    pad = lambda a: np.pad(a, 1)
+    zs, ws = pad(z), pad(w)
+    corner_sum = zs[:-1, :-1] + zs[1:, :-1] + zs[:-1, 1:] + zs[1:, 1:]
+    corner_w = ws[:-1, :-1] + ws[1:, :-1] + ws[:-1, 1:] + ws[1:, 1:]
+    nearest = ndimage.distance_transform_edt(corner_w == 0, return_distances=False, return_indices=True)
+    corner_z = np.where(corner_w > 0, corner_sum / np.maximum(corner_w, 1), 0.0)
+    corner_z = corner_z[nearest[0], nearest[1]]
+
+    used = np.zeros((nx + 1, ny + 1), bool)
+    used[:-1, :-1] |= cells
+    used[1:, :-1] |= cells
+    used[:-1, 1:] |= cells
+    used[1:, 1:] |= cells
+    index = -np.ones((nx + 1, ny + 1), int)
+    index[used] = np.arange(used.sum())
+    ci, cj = np.nonzero(used)
+    vertices = np.column_stack([lo[0] + ci * CELL, lo[1] + cj * CELL, corner_z[ci, cj]])
+
+    triangles = []
+    for i, j in zip(*np.nonzero(cells)):
+        a, b, c, d = index[i, j], index[i + 1, j], index[i + 1, j + 1], index[i, j + 1]
+        triangles += [a, b, c, a, c, d]
+    return vertices, [int(t) for t in triangles]
+
+
 def build(folder):
     name = folder.split("_", 1)[1]
     path = os.path.join(SCANS_DIR, folder)
@@ -128,7 +185,8 @@ def build(folder):
     gx, gy = np.meshgrid(cx, cy, indexing="ij")
     cell_z, cell_dist = ground_height_at(ground, np.column_stack([gx.ravel(), gy.ravel()]))
     cell_z = cell_z.reshape(nx, ny)
-    has_ground = (cell_dist <= GROUND_REACH).reshape(nx, ny)
+    # the scan's ground mesh has holes; fill them so they become walkable floor rather than pits
+    has_ground = ndimage.binary_fill_holes((cell_dist <= GROUND_REACH).reshape(nx, ny))
 
     # summed opacity of splats at body height, per square metre
     ix = ((pts[:, 0] - lo[0]) // CELL).astype(int)
@@ -156,28 +214,28 @@ def build(folder):
     for x, y in keep_xy:
         blocked &= (gx - x) ** 2 + (gy - y) ** 2 > KEEP_CLEAR ** 2
 
-    # merge runs of blocked cells along Y into boxes
-    boxes = []
-    for i in range(nx):
-        j = 0
-        while j < ny:
-            if not blocked[i, j]:
-                j += 1
-                continue
-            k = j
-            while k + 1 < ny and blocked[i, k + 1]:
-                k += 1
-            z = cell_z[i, j:k + 1]
-            boxes.append([lo[0] + i * CELL, lo[1] + j * CELL, z.min() + WALL_BOTTOM,
-                          lo[0] + (i + 1) * CELL, lo[1] + (k + 1) * CELL, z.max() + WALL_TOP])
-            j = k + 1
+    # small free-standing blobs are often people, signs or noise rather than buildings: the player can smash them.
+    # Blobs touching the edge of the scan stay solid so the map stays closed.
+    edge = ndimage.binary_dilation(~has_ground, structure=np.ones((3, 3)))
+    labels, n = ndimage.label(walls & blocked, structure=np.ones((3, 3)))
+    breakables = []
+    for blob in range(1, n + 1):
+        mask = labels == blob
+        if mask.sum() * CELL * CELL < BREAKABLE_MAX_AREA and not (mask & edge).any():
+            breakables.append(boxes_of(mask, lo, cell_z, BREAKABLE_TOP))
+            blocked &= ~mask
+
+    boxes = boxes_of(blocked, lo, cell_z, WALL_TOP)
+
+    floor_vertices, floor_indices = floor_mesh(has_ground, cell_z, lo)
 
     cm = lambda a: (np.asarray(a) * 100.0).round(1).tolist()
     result = {
         "stage": name,
         "metresPerUnit": mpu,
-        "ground": {"vertices": cm(ground), "indices": indices.tolist()},
+        "ground": {"vertices": cm(floor_vertices), "indices": floor_indices},
         "walls": cm(boxes),
+        "breakables": [cm(group) for group in breakables],
         "start": cm([start[0, 0], start[0, 1], keep_z[-1]]),
         "coins": cm(np.column_stack([coins[:, :2], keep_z[:-1] + COIN_HEIGHT]))
     }
@@ -189,6 +247,11 @@ def build(folder):
     img = np.zeros((nx, ny, 3), np.uint8)
     img[has_ground] = (90, 90, 90)
     img[blocked] = (200, 40, 40)
+    for group in breakables:
+        for b in group:
+            i0, j0 = int(round((b[0] - lo[0]) / CELL)), int(round((b[1] - lo[1]) / CELL))
+            i1, j1 = int(round((b[3] - lo[0]) / CELL)), int(round((b[4] - lo[1]) / CELL))
+            img[i0:i1, j0:j1] = (255, 150, 30)
     for (x, y), color in zip(keep_xy, [(255, 210, 0)] * len(coins) + [(0, 160, 255)]):
         i, j = int((x - lo[0]) // CELL), int((y - lo[1]) // CELL)
         img[max(i - 1, 0):i + 2, max(j - 1, 0):j + 2] = color
@@ -198,7 +261,7 @@ def build(folder):
     bump_raw = np.percentile(np.abs(raw_ground[:, 2] - np.median(raw_ground[:, 2])), 90)
     bump = np.percentile(np.abs(ground[:, 2] - np.median(ground[:, 2])), 90)
     print(f"{name:13s} scale x{SCALES.get(name, 1.0):.2f}  walkable {walkable.sum() * CELL * CELL:5.0f} m2  "
-          f"wall boxes {len(boxes):4d}  ground spread (p90) {bump_raw:.2f} m -> {bump:.2f} m")
+          f"wall boxes {len(boxes):4d}  breakables {len(breakables):3d}  ground spread (p90) {bump_raw:.2f} m -> {bump:.2f} m")
 
 
 def main():

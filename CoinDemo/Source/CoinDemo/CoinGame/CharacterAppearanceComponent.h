@@ -26,6 +26,10 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<AActor> Appearance;
 
+	/** The look is hidden while the camera is closer than this to the character, so the view never ends up inside it */
+	UPROPERTY(EditAnywhere, Category="Appearance", meta = (Units = "cm"))
+	float HideWithinCameraDistance = 110.0f;
+
 public:
 
 	/** Constructor */
@@ -33,6 +37,9 @@ public:
 
 	/** Returns the spawned appearance actor, if any */
 	AActor* GetAppearance() const { return Appearance; }
+
+	/** Hides the look when the camera is pushed into the character */
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 protected:
 

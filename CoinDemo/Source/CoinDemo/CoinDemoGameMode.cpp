@@ -4,6 +4,13 @@
 #include "CoinDemoHUD.h"
 #include "CoinPickup.h"
 #include "DevCapture.h"
+#include "CoinDemoSaveGame.h"
+#include "Sound/SoundBase.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Kismet/KismetMaterialLibrary.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "GameFramework/DamageType.h"
+#include "GameFramework/Pawn.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
@@ -15,6 +22,15 @@ ACoinDemoGameMode::ACoinDemoGameMode()
 {
 	HUDClass = ACoinDemoHUD::StaticClass();
 	DevCapture = CreateDefaultSubobject<UDevCapture>(TEXT("DevCapture"));
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> Clear(TEXT("/Game/Audio/SFX_Clear.SFX_Clear"));
+	static ConstructorHelpers::FObjectFinder<USoundBase> Record(TEXT("/Game/Audio/SFX_Record.SFX_Record"));
+	ClearSound = Clear.Object;
+	RecordSound = Record.Object;
+
+	static ConstructorHelpers::FObjectFinder<UMaterialParameterCollection> Barrier(TEXT("/Game/Stages/Common/MPC_Barrier.MPC_Barrier"));
+	BarrierParameters = Barrier.Object;
+	PrimaryActorTick.bCanEverTick = true;
 
 	// stage 1 is the template map, followed by the ANNX scan stages built by Scripts/build_scan_stages.py
 	struct FStageInfo { const TCHAR* Level; FText Name; };
@@ -37,6 +53,12 @@ void ACoinDemoGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
+	StageStartTime = GetWorld()->GetTimeSeconds();
+	if (const float* Best = UCoinDemoSaveGame::LoadOrCreate()->BestTimes.Find(UGameplayStatics::GetCurrentLevelName(this, true)))
+	{
+		PreviousBestTime = *Best;
+	}
+
 	// count every coin placed in this stage
 	TotalCoins = 0;
 	for (TActorIterator<ACoinPickup> It(GetWorld()); It; ++It)
@@ -48,6 +70,7 @@ void ACoinDemoGameMode::BeginPlay()
 void ACoinDemoGameMode::CoinCollected()
 {
 	++CollectedCoins;
+	LastCoinTime = GetWorld()->GetTimeSeconds();
 
 	BP_OnCoinCollected(CollectedCoins, TotalCoins);
 
@@ -55,6 +78,21 @@ void ACoinDemoGameMode::CoinCollected()
 	if (CollectedCoins >= TotalCoins && !IsStageCleared())
 	{
 		StageClearedTime = GetWorld()->GetTimeSeconds();
+
+		// remember the best time per stage
+		const float Time = GetElapsedTime();
+		bNewRecord = PreviousBestTime < 0.0f || Time < PreviousBestTime;
+		if (bNewRecord)
+		{
+			UCoinDemoSaveGame* SaveGame = UCoinDemoSaveGame::LoadOrCreate();
+			SaveGame->BestTimes.Add(UGameplayStatics::GetCurrentLevelName(this, true), Time);
+			SaveGame->Save();
+		}
+
+		if (USoundBase* Sound = (bNewRecord && PreviousBestTime >= 0.0f) ? RecordSound : ClearSound)
+		{
+			UGameplayStatics::PlaySound2D(this, Sound);
+		}
 
 		BP_OnStageCleared(IsLastStage());
 
@@ -79,6 +117,36 @@ int32 ACoinDemoGameMode::GetStageNumber() const
 	}
 
 	return 0;
+}
+
+void ACoinDemoGameMode::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
+	if (!Player)
+	{
+		return;
+	}
+
+	const FVector Location = Player->GetActorLocation();
+	if (BarrierParameters)
+	{
+		UKismetMaterialLibrary::SetVectorParameterValue(this, BarrierParameters, TEXT("PlayerPosition"), FLinearColor(Location.X, Location.Y, Location.Z, 1.0f));
+	}
+
+	// fell through a gap in the scan: the character puts itself back at the start
+	if (const AActor* Start = Player->GetController() ? FindPlayerStart(Player->GetController()) : nullptr;
+		Start && Location.Z < Start->GetActorLocation().Z - FallLimit)
+	{
+		Player->FellOutOfWorld(*GetDefault<UDamageType>());
+	}
+}
+
+float ACoinDemoGameMode::GetElapsedTime() const
+{
+	const float End = IsStageCleared() ? StageClearedTime : GetWorld()->GetTimeSeconds();
+	return End - StageStartTime;
 }
 
 FText ACoinDemoGameMode::GetStageName() const

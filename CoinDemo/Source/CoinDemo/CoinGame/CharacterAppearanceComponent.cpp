@@ -8,10 +8,13 @@
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/PlayerController.h"
 
 UCharacterAppearanceComponent::UCharacterAppearanceComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 
 	static ConstructorHelpers::FClassFinder<AActor> MetaHuman(TEXT("/Game/MetaHumans/NewMetaHumanCharacter/BP_NewMetaHumanCharacter"));
 	if (MetaHuman.Succeeded())
@@ -73,6 +76,21 @@ void UCharacterAppearanceComponent::BeginPlay()
 	}
 
 	UE_LOG(LogCoinDemo, Log, TEXT("Wearing %s: %d meshes follow %s"), *Appearance->GetName(), Followers, *Leader->GetName());
+}
+
+void UCharacterAppearanceComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	const APlayerController* PC = Character ? Cast<APlayerController>(Character->GetController()) : nullptr;
+	if (!Appearance || !PC || !PC->PlayerCameraManager)
+	{
+		return;
+	}
+
+	const float Distance = FVector::Dist(PC->PlayerCameraManager->GetCameraLocation(), Character->GetActorLocation());
+	Appearance->SetActorHiddenInGame(Distance < HideWithinCameraDistance);
 }
 
 void UCharacterAppearanceComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

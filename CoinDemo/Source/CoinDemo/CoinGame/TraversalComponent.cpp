@@ -31,7 +31,6 @@ UTraversalComponent::UTraversalComponent()
 	// Quaternius Universal Animation Library, retargeted by Scripts/import_animations.py
 	CrouchIdleAnim = TraversalAnims::Find(TEXT("UAL1_StandardRig_Crouch_Idle_Loop"));
 	CrouchMoveAnim = TraversalAnims::Find(TEXT("UAL1_StandardRig_Crouch_Fwd_Loop"));
-	SprintAnim = TraversalAnims::Find(TEXT("UAL1_StandardRig_Sprint_Loop"));
 	SlideStartAnim = TraversalAnims::Find(TEXT("UAL2_StandardSlide_Start"));
 	SlideLoopAnim = TraversalAnims::Find(TEXT("UAL2_StandardSlide_Loop"));
 	SlideExitAnim = TraversalAnims::Find(TEXT("UAL2_StandardSlide_Exit"));
@@ -368,7 +367,7 @@ void UTraversalComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	const bool bSprinting = bWantsSprint && !Character->bIsCrouched;
 	Movement->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
 
-	// locomotion the anim blueprint doesn't cover: crouching and sprinting
+	// locomotion the anim blueprint doesn't cover: crouching
 	const float Speed = Movement->Velocity.Size2D();
 	if (!Movement->IsMovingOnGround())
 	{
@@ -384,10 +383,6 @@ void UTraversalComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 		{
 			SetLoop(CrouchIdleAnim, 1.0f);
 		}
-	}
-	else if (bSprinting && Speed > WalkSpeed + 50.0f)
-	{
-		SetLoop(SprintAnim, FMath::Clamp(Speed / SprintSpeed, 0.6f, 1.3f));
 	}
 	else
 	{
