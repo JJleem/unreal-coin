@@ -1,0 +1,11 @@
+{
+	"_comment": "Per-stage multiplier on top of each scan's estimated metresPerUnit (README says the estimate can be off by 20-30%). Raise it if the character looks too big for the scan, then rerun make_scan_collision.py and build_scan_stages.py.",
+	"_Hongdae": "street measured 3-6 m wide at x1.0 but it is a two-lane road with sidewalks",
+	"Hongdae": 2.0,
+	"_Gyeonggijeon": "the README's reference scan, matched against real measurements",
+	"Gyeonggijeon": 1.0,
+	"_Gwanghwamun": "the railed platform measured 18 x 31 m at x1.0; the real Woldae is 29.7 x 48.7 m",
+	"Gwanghwamun": 1.6,
+	"_JejuPier": "no reference measured; uses the same correction as Gwanghwamun, whose scale was estimated the same way",
+	"JejuPier": 1.6
+}

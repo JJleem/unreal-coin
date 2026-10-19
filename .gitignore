@@ -1,0 +1,22 @@
+# This repository holds code, scripts, config and docs only. Large assets stay local:
+#   scans (Scans/), Unreal content (*.uasset, *.umap), the 3DGS plugin (cloned separately, see HANDOFF.md)
+/Scans/
+/screen.png
+CoinDemo/Content/
+CoinDemo/Plugins/OpenSplat4D/
+CoinDemo/Scripts/generated/
+
+# Unreal build output and caches
+CoinDemo/Binaries/
+CoinDemo/Intermediate/
+CoinDemo/Saved/
+CoinDemo/DerivedDataCache/
+CoinDemo/.vs/
+CoinDemo/*.sln
+CoinDemo/*.slnx
+CoinDemo/Plugins/*/Binaries/
+CoinDemo/Plugins/*/Intermediate/
+
+# Python
+__pycache__/
+*.pyc
