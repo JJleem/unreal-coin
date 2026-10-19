@@ -21,3 +21,6 @@ CoinDemo/Plugins/*/Intermediate/
 # Python
 __pycache__/
 *.pyc
+
+# Packaged game
+/Build/
