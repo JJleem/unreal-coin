@@ -15,6 +15,10 @@ class ACoinDemoGameMode : public AGameModeBase
 {
 	GENERATED_BODY()
 
+	/** Screenshots and scripted input for unattended checks, idle unless enabled on the command line */
+	UPROPERTY(VisibleAnywhere, Category="Components")
+	TObjectPtr<class UDevCapture> DevCapture;
+
 protected:
 
 	/** Stage maps in play order */

@@ -3,6 +3,7 @@
 #include "CoinDemoGameMode.h"
 #include "CoinDemoHUD.h"
 #include "CoinPickup.h"
+#include "DevCapture.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
@@ -13,6 +14,7 @@
 ACoinDemoGameMode::ACoinDemoGameMode()
 {
 	HUDClass = ACoinDemoHUD::StaticClass();
+	DevCapture = CreateDefaultSubobject<UDevCapture>(TEXT("DevCapture"));
 
 	// stage 1 is the template map, followed by the ANNX scan stages built by Scripts/build_scan_stages.py
 	struct FStageInfo { const TCHAR* Level; FText Name; };

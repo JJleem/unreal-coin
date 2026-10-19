@@ -8,6 +8,7 @@
 #include "CoinDemoCharacter.generated.h"
 
 class USpringArmComponent;
+class UCharacterAppearanceComponent;
 class UCameraComponent;
 class UInputAction;
 struct FInputActionValue;
@@ -26,6 +27,10 @@ class ACoinDemoCharacter : public ACharacter
 	/** Camera boom positioning the camera behind the character */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	USpringArmComponent* CameraBoom;
+
+	/** Wears the MetaHuman look on top of the animated mannequin */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UCharacterAppearanceComponent* Appearance;
 
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
