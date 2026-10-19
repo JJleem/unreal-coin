@@ -12,6 +12,10 @@
 #include "InputActionValue.h"
 #include "CoinDemo.h"
 #include "CharacterAppearanceComponent.h"
+#include "TraversalComponent.h"
+#include "InputAction.h"
+#include "InputMappingContext.h"
+#include "Engine/LocalPlayer.h"
 #include "GameFramework/GameModeBase.h"
 #include "Engine/World.h"
 
@@ -50,6 +54,7 @@ ACoinDemoCharacter::ACoinDemoCharacter()
 	FollowCamera->bUsePawnControlRotation = false;
 
 	Appearance = CreateDefaultSubobject<UCharacterAppearanceComponent>(TEXT("Appearance"));
+	Traversal = CreateDefaultSubobject<UTraversalComponent>(TEXT("Traversal"));
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -60,9 +65,16 @@ void ACoinDemoCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
 		
-		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		// Jumping (or climbing a ledge in front)
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACoinDemoCharacter::DoJumpStart);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACoinDemoCharacter::DoJumpEnd);
+
+		// Traversal
+		CreateTraversalInput();
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &ACoinDemoCharacter::DoSprintStart);
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &ACoinDemoCharacter::DoSprintEnd);
+		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Started, this, &ACoinDemoCharacter::DoCrouch);
+		EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Started, this, &ACoinDemoCharacter::DoRoll);
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ACoinDemoCharacter::Move);
@@ -97,7 +109,7 @@ void ACoinDemoCharacter::Look(const FInputActionValue& Value)
 
 void ACoinDemoCharacter::DoMove(float Right, float Forward)
 {
-	if (GetController() != nullptr)
+	if (GetController() != nullptr && Traversal->GetAction() != ETraversalAction::Mantle)
 	{
 		// find out which way is forward
 		const FRotator Rotation = GetController()->GetControlRotation();
@@ -127,6 +139,17 @@ void ACoinDemoCharacter::DoLook(float Yaw, float Pitch)
 
 void ACoinDemoCharacter::DoJumpStart()
 {
+	if (Traversal->IsBusy())
+	{
+		return;
+	}
+
+	// a ledge in front takes priority over jumping
+	if (!GetCharacterMovement()->IsFalling() && Traversal->TryMantle())
+	{
+		return;
+	}
+
 	// signal the character to jump
 	Jump();
 }
@@ -152,4 +175,65 @@ void ACoinDemoCharacter::FellOutOfWorld(const UDamageType& DmgType)
 	}
 
 	Super::FellOutOfWorld(DmgType);
+}
+
+void ACoinDemoCharacter::DoSprintStart()
+{
+	Traversal->SetSprinting(true);
+}
+
+void ACoinDemoCharacter::DoSprintEnd()
+{
+	Traversal->SetSprinting(false);
+}
+
+void ACoinDemoCharacter::DoCrouch()
+{
+	Traversal->CrouchOrSlide();
+}
+
+void ACoinDemoCharacter::DoRoll()
+{
+	Traversal->TryRoll();
+}
+
+void ACoinDemoCharacter::CreateTraversalInput()
+{
+	if (TraversalMappingContext)
+	{
+		return;
+	}
+
+	auto MakeAction = [this](const TCHAR* Name)
+	{
+		UInputAction* Action = NewObject<UInputAction>(this, Name);
+		Action->ValueType = EInputActionValueType::Boolean;
+		return Action;
+	};
+	SprintAction = MakeAction(TEXT("IA_Sprint"));
+	CrouchAction = MakeAction(TEXT("IA_Crouch"));
+	RollAction = MakeAction(TEXT("IA_Roll"));
+
+	TraversalMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Traversal"));
+	TraversalMappingContext->MapKey(SprintAction, EKeys::LeftShift);
+	TraversalMappingContext->MapKey(SprintAction, EKeys::Gamepad_LeftThumbstick);
+	TraversalMappingContext->MapKey(CrouchAction, EKeys::C);
+	TraversalMappingContext->MapKey(CrouchAction, EKeys::LeftControl);
+	TraversalMappingContext->MapKey(CrouchAction, EKeys::Gamepad_FaceButton_Right);
+	TraversalMappingContext->MapKey(RollAction, EKeys::Q);
+	TraversalMappingContext->MapKey(RollAction, EKeys::Gamepad_FaceButton_Left);
+}
+
+void ACoinDemoCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+
+	CreateTraversalInput();
+	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+		{
+			Subsystem->AddMappingContext(TraversalMappingContext, 1);
+		}
+	}
 }

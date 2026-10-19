@@ -42,6 +42,9 @@ class UDevCapture : public UActorComponent
 	/** Number of screenshots taken */
 	int32 ShotCount = 0;
 
+	/** Character yaw when the bot started; bot movement and the camera angle are relative to it */
+	TOptional<float> BaseYaw;
+
 	/** Camera override from the command line */
 	TOptional<float> ShotYaw;
 	float ShotPitch = -10.0f;

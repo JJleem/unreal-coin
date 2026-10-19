@@ -119,16 +119,24 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 		{
 			RunBotStep();
 		}
+		if (!BaseYaw.IsSet())
+		{
+			BaseYaw = Character->GetActorRotation().Yaw;
+		}
 		if (!BotMove.IsZero())
 		{
-			Character->DoMove(BotMove.X, BotMove.Y);
+			// fixed world directions, so turning the camera for screenshots doesn't steer the bot
+			const FRotator Base(0.0f, BaseYaw.GetValue(), 0.0f);
+			Character->AddMovementInput(FRotationMatrix(Base).GetUnitAxis(EAxis::X), BotMove.Y);
+			Character->AddMovementInput(FRotationMatrix(Base).GetUnitAxis(EAxis::Y), BotMove.X);
 		}
 	}
 
 	// hold the camera at the requested angle around the player
 	if (ShotYaw.IsSet() && PC && Character && ShotTimes.Num() > 0)
 	{
-		PC->SetControlRotation(FRotator(ShotPitch, Character->GetActorRotation().Yaw + ShotYaw.GetValue(), 0.0f));
+		const float Yaw = BaseYaw.IsSet() ? BaseYaw.GetValue() : Character->GetActorRotation().Yaw;
+		PC->SetControlRotation(FRotator(ShotPitch, Yaw + ShotYaw.GetValue(), 0.0f));
 	}
 
 	if (ShotTimes.Num() > 0 && Now >= ShotTimes[0])

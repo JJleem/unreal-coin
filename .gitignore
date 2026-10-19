@@ -5,6 +5,7 @@
 CoinDemo/Content/
 CoinDemo/Plugins/OpenSplat4D/
 CoinDemo/Scripts/generated/
+CoinDemo/SourceAssets/
 
 # Unreal build output and caches
 CoinDemo/Binaries/
