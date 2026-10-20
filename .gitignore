@@ -24,3 +24,6 @@ __pycache__/
 
 # Packaged game
 /Build/
+
+# Cook file order logs written next to the project
+CoinDemo/Build/Windows/FileOpenOrder/
