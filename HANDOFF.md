@@ -6,6 +6,7 @@
 실제 장소 위에 AR 코스를 깐 것처럼 보이게 했습니다. 스캔과 억지로 섞지 않고 일부러 구분되는 스타일로 통일한 것입니다.
 
 마지막 상태 (2026-10-20): 5개 스테이지 처음부터 끝까지 플레이 가능, RTX 5080에서 120~300fps.
+게임 스테이지와 별개로 홍대 화질 개선 테스트 레벨(3-6~3-11)과 주차타워 역분석(3-12)이 있습니다. 실제 스테이지는 바뀌지 않았습니다.
 코드 저장소: https://github.com/JJleem/unreal-coin (코드, 스크립트, 설정, 문서만. 에셋은 로컬)
 
 ```
@@ -55,6 +56,7 @@ Stage 5  제주 바닷가 포구  /Game/Stages/Lvl_JejuPier
 unreal_project/                 ← git 저장소 (코드만)
 ├─ HANDOFF.md, README.md
 ├─ Scans/                      ← ANNX 원본 (git 제외, 수정하지 않음)
+├─ parking-tower/, Referense/  ← 주차타워 PLY·감독 영상, 참고 영상 (git 제외)
 │   └─ 0N_<Name>/<Name>.ply, <Name>_collision.glb, stage.json, README.md
 ├─ Build/                      ← 패키징된 게임 (git 제외)
 └─ CoinDemo/                   ← 언리얼 프로젝트
@@ -237,7 +239,37 @@ ANNX README의 공식과 같아서 **Splat Actor에는 회전 없이 균일 축�
 - `Lvl_Hongdae_HighQualityGS`: 정리된 스캔(건물은 스캔 유지) + 구역 A의 바닥·연석·계단·소품 메시. **B 키**로 원본 PLY(플러그인 기본값)와 전환. 이 레벨에서만 TSR과 톤 보정이 켜지고 끝나면 원래대로 돌아갑니다.
 - 결과: `Saved/ScanQuality/Hongdae_HighQualityGS/` (시점별 6종 비교, 이동 영상 `motion_before_vs_after.mp4`).
 
-### 3-10. 헤드리스(Commandlet) 실행 시 주의
+### 3-10. 홍대 시티 키트와 구역 B (`Scripts/citykit/`, README.md)
+- 외부 CC0 모델(Poly Haven)을 `/Game/CityKit`으로 가져와 목록화(`import_kit.py`, `generated/citykit_meshes.json`).
+- `scan_survey.py`: 1m 단위 손상도 × 플레이 경로 노출로 우선순위 지도. 기둥 감지는 믿을 수 없음.
+- `auto_zone_plan.py`: 보도 자동 감지 **실패**(구역 A 실측 대비 IoU 0.23). 보도는 사람이 정사영상 위에 그려야 함(구역당 약 15분).
+- `Lvl_Hongdae_ZoneB`, `Lvl_Hongdae_World`(구역 A+B): 키트로 30분 만에 만들었지만 **같은 시점 비교에서 원본 스캔보다 나쁨**(타일 반복 도로, 잘못 놓인 기둥). 테스트 레벨로만 유지.
+- 교훈: 바닥은 플레이 경로에서 손상이 큰 곳만 교체, 스캔 정면은 유지, 소품은 사람이 확인한 위치에만.
+
+### 3-11. 홍대 건물 재구성 Reimagined (`Scripts/reimagined/`, README.md)
+`Lvl_Hongdae_Reimagined`(+ `_MeshOnly`) = `Lvl_Hongdae_HighQualityGS` + 실제 건축물로 다시 만든 기준 건물 3동 + 그 자리 스플랫을 지운 스캔. B 키 전환 유지.
+- 건물: **SOLB**(4층, 빨간 상자 간판·입체 글자, 2층 전자담배 간판, 방범창, 발코니, 옥상 물탱크), **BIBIANG**(45° 모퉁이, 금색 글자, 베이지 타일, 타로카페 돌출 간판), **BLUE ELEPHANT / The Coffee Bean**(1층 안경점, 2층 카페 실내, 차양, 맨사드 지붕·도머). 정면선은 스캔 벽 스플랫 분포와 구운 정면 사진에서 측정.
+- 모듈 `bkit.py`(다른 건물에 재사용): 정면은 거리에서 본 a→b, 바깥 법선 n=(-u.y,u.x)(UE 왼손 좌표). 창(미닫이·여닫이·격자, 두께 있는 틀·창턱), 방범창, 유리 뒤 실제 방, 출입문, 간판 상자, 돌출 간판, 폰트 외곽선을 돌출한 채널 글자, 배관·가스관·전선, 파라펫·난간, 매장 진열.
+- 간판 13종은 `signs.py`가 실제 폰트로 그림(맑은 고딕, Arial, 중국어는 msyhbd.ttc — 맑은 고딕에 "电" 없음).
+- 에셋: Poly Haven CC0 모델 33종 + 2k 텍스처 20종(`fetch_polyhaven.py`, `SourceAssets/PolyHaven/LICENSE.txt`). Fab/Quixel은 로그인 필요라 미사용, CC0 차량 없음.
+- 수치: 메시 6개(약 2만 삼각형), 재질 76개, 소품 76개. 스플랫 439만 → 369만 유지. FPS 최종 127~153, 메시만 130~158, 원본 108~140, 캐릭터 플레이 117(RTX 5080, 1600×900).
+- 함정: 텍스처 샘플러 타입이 압축 형식과 다르면(Masks인데 LINEAR_COLOR) 재질 컴파일 실패 → 체커 무늬. 구역 A 화이트밸런스를 그대로 쓰면 흰 벽이 보라색 → 절반만 적용. 새 건물 그림자가 도로에서 새까매서 하늘빛 ×2.5. 닫힌 방의 발광은 Lumen이 증폭하므로 0.12~0.25로 낮게.
+- 결과: `Saved/ScanQuality/Hongdae_Reimagined/` (같은 시점 4분할 비교 view1~5, 캐릭터 시점, `walk_before_vs_after.mp4`).
+- 판단: 단순 상자 건물은 확실히 벗어났지만 가까이서는 깨끗한 CG 느낌으로 스캔보다 사실감이 약함(모서리 라운딩·데칼·실내 디테일 부족). **Phase 3(나머지 약 25동, 115m)은 품질 기준 확인 전이라 시작하지 않음.** 예상 작업량 건물당 30~60분, 전체 15~25시간. 위치·층고 측정과 간판 문구는 사람이 정해야 함.
+- 재실행: WSL `python build_reimagined.py` → `UnrealEditor-Cmd ... -run=pythonscript -script=Scripts\reimagined\build_reimagined_level.py`.
+
+### 3-12. 주차타워 PLY 역분석 (`Scripts/parkingtower/`, README.md에 7가지 질문 답)
+원본: `parking-tower/`(git 제외; SuperSplat 압축 PLY 183MB, settings.json, 감독 영상 video.mp4). `Referense/롯데타워_빈자리네비게이션.mp4`는 다른 장소의 완전한 CG라 비교에서 제외.
+- **결론: 감독 영상은 이 PLY를 표준 3DGS로 그대로 렌더링 + AR 오버레이(주차칸 상자, 경로선, 라벨)만 얹은 것.** 메시·PBR·언리얼 조명 없음. 같은 카메라 비교 색 오차 0.018, SSIM 0.92~0.93, settings.json도 톤매핑·그레이딩 꺼짐.
+- 고품질의 원인은 데이터: 299만 스플랫, SH 3차, 불투명도 중앙값 0.30(홍대 0.063), 바닥 밀도 214/㎡(홍대 114), 바닥 스플랫 4.3cm(홍대 7.7cm). 바닥 반사도 PLY 안의 거울 스플랫 + SH로 들어 있음.
+- 좌표·축척: 위쪽은 PLY −Y, 3.846 m/단위(주차칸 폭 2.5m 가정, ±8%), 스캔 전체 약 0.8° 기울어짐(고치지 않음).
+- 언리얼 재현: TSR + `gs.ToneCorrection 1`만으로 감독 영상과 색 오차 0.027~0.038, 191fps. 남은 차이는 선명도 약간과 화각(DevCapture 90° 고정, 영상 약 64°).
+- 메시 섞기 실험(E3 바닥 언릿, E4 바닥 PBR + Rect Light, E5 + 기둥 상자): **모두 원본보다 나쁨.** 스플랫은 SSR/Lumen 반사에 안 들어가서 메시 바닥에 기둥·차 반사가 사라짐.
+- 홍대 시사점: 렌더러 개선은 이미 적용됨. 같은 품질은 재촬영·재학습(걷는 높이로 촘촘히, SH 3차 유지)과 카메라를 촬영 경로에 묶는 연출로만 가능.
+- 레벨: `/Game/Stages/Lvl_ParkingTower_ReverseStudy`(원본 PLY만), `_E3_FloorUnlit`, `_E4_FloorPBR`, `_E5_Hybrid`. 에셋 `/Game/Stages/ParkingTower/`. 파생 데이터 2.1GB `SourceAssets/ParkingTower/`.
+- 결과: `Saved/ScanQuality/ParkingTower_ReverseStudy/` (`video/comparison_raw_improved_hybrid.mp4`, `video_match/trio_*.jpg`, `analysis/`, `fps.txt`). 샷 3·4는 카메라 자동 맞춤 실패로 구도 근사.
+
+### 3-13. 헤드리스(Commandlet) 실행 시 주의
 - 플러그인의 `AGaussianSplatActor`는 `NotPlaceable` → 배치 가능한 래퍼 `AScanSplatActor` 사용.
 - `spawn_actor_from_object`, 라인 트레이스는 헤드리스에서 동작하지 않습니다.
 - 로드된 에셋은 `delete_asset`이 조용히 실패할 수 있습니다. 스플랫 재가져오기가 안 되면 `.uasset`을 직접 지우세요.
@@ -309,4 +341,6 @@ UnrealEditor.exe <repo>\CoinDemo\CoinDemo.uproject /Game/Stages/Lvl_Hongdae -gam
 - 코스 위치는 자동 선택이라 탑이 맵 가장자리(홍대)나 시작점 근처(경기전)에 놓이기도 합니다. 마음에 안 들면 `plan_course`에서 좌표를 고정할 수 있습니다.
 - 고스트는 템플릿 마네킹 + 기본 이동 애니메이션이라 구르기, 기어오르기 동작은 재생하지 않습니다(위치는 따라감).
 - 배경 음악과 환경음은 넣지 않았습니다(요청에 따라 제외).
+- **홍대 Reimagined Phase 3 대기**: 기준 건물 3동의 품질을 사용자가 확인한 뒤 확장. 제안 순서: 모서리·얼룩 데칼·실내 디테일로 품질 한 단계 → 붉은 거리 양쪽 건물. 차량은 Fab 무료 팩을 직접 받아야 함.
+- 화질의 근본 한계는 데이터(주차타워 비교로 확인). 홍대를 주차타워 수준으로 하려면 ANNX에 재촬영·재학습(SH 3차) 요청.
 - 다음 후보: 움직이는 발판(`AHoloPlatform::SetMovement`는 이미 있음), 스테이지 시작 카메라 비행, 온라인 순위표.
