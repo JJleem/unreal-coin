@@ -16,7 +16,9 @@ import os
 import unreal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ZONE = "Hongdae_A"
+# the zone to build: generated/zone_job.txt if present (written by the caller), else zone A
+_JOB = os.path.join(HERE, "..", "generated", "zone_job.txt")
+ZONE = open(_JOB).read().strip() if os.path.exists(_JOB) else "Hongdae_A"
 STAGE, ZONE_LETTER = ZONE.split("_")
 SOURCE = os.path.normpath(os.path.join(HERE, "..", "..", "SourceAssets"))
 ZONE_DIR = os.path.join(SOURCE, "Rebuilt", ZONE)
@@ -435,7 +437,8 @@ def main():
     srgb_to_linear = lambda c: (c / 12.92) if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
     average = {name: TEXTURE_AVERAGE[name] for name in TEXTURE_AVERAGE}
     to_tint = lambda rgb, set_name: tuple(round(srgb_to_linear(c) / average[set_name], 3) for c in rgb)
-    calibration = json.load(open(os.path.join(HERE, "zones", f"{ZONE}_calibration.json")))
+    # colour calibration is per stage lighting, measured on zone A
+    calibration = json.load(open(os.path.join(HERE, "zones", f"{ZONE.split('_')[0]}_A_calibration.json")))
     balance = lambda rgb, extra=(1.0, 1.0, 1.0): tuple(round(c * w * e * ALBEDO_SCALE, 4) for c, w, e in zip(rgb, calibration["white_balance"], extra))
     for surface, (set_name, tile, tint, metallic, rough, rotate) in SURFACES.items():
         t = textures[set_name]

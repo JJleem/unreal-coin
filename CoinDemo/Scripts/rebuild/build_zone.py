@@ -261,7 +261,9 @@ def control_texture(plan, road, sidewalk_union, out):
     # average scan colour of each ground class, to tint the PBR materials towards the place
     asphalt = on_road & (gx < plan["red_road_from_x"]) & (paint[0] < 0.1)
     redp = on_road & (gx >= plan["red_road_from_x"]) & (paint[0] < 0.1) & (paint[1] < 0.1)
-    return {"asphalt": a[asphalt].mean(0).round(3).tolist(), "red": a[redp].mean(0).round(3).tolist(),
+    red_mean = a[redp].mean(0) if redp.any() else np.array([0.4, 0.33, 0.33])
+    asphalt_mean = a[asphalt].mean(0) if asphalt.any() else red_mean
+    return {"asphalt": asphalt_mean.round(3).tolist(), "red": red_mean.round(3).tolist(),
             "sidewalk": a[~on_road & shapely.contains_xy(sidewalk_union, gx, gy)].mean(0).round(3).tolist()}
 
 
@@ -534,20 +536,26 @@ def removal(plan, scan, floor, domain, sidewalks, surface):
     in_domain = shapely.contains_xy(domain, xy[:, 0], xy[:, 1])
     walk = shapely.contains_xy(unary_union(list(sidewalks.values())), xy[:, 0], xy[:, 1])
     ground = in_domain & (above > GROUND_BAND[0]) & (above < np.where(walk, SIDEWALK_BAND_TOP, GROUND_BAND[1]))
-    X0, X1, Y0, Y1 = plan["building"]["footprint"]
-    inside = (xy[:, 0] > X0 - 0.15) & (xy[:, 0] < X1 + 0.1) & (xy[:, 1] > Y0 - 0.15) & (xy[:, 1] < Y1 + 0.3) & (z > plan["building"]["ground"] - 0.5) & (z < 13.6)
-    # the awnings and signs reach out over the sidewalk
-    awnings = (((xy[:, 1] > Y0 - 0.8) & (xy[:, 0] > X0 - 0.8) & (xy[:, 0] < X1 + 0.1)) |
-               ((xy[:, 0] > X0 - 0.8) & (xy[:, 1] > Y0 - 0.8) & (xy[:, 1] < Y1 + 0.3))) & (z > 4.8) & (z < 13.6)
-    signs = (((xy[:, 1] > Y0 - 0.35) & (xy[:, 0] > X0 - 0.35) & (xy[:, 0] < 12.9)) |
-             ((xy[:, 0] > X0 - 0.35) & (xy[:, 1] > Y0 - 0.35) & (xy[:, 1] < 16.6))) & (z > -0.1) & (z < 4.0)
-    stair = (xy[:, 0] > 12.5) & (xy[:, 0] < 14.8) & (xy[:, 1] > 5.8) & (xy[:, 1] < 9.6) & (z > -2.6) & (z < 2.2)
+    none = np.zeros(len(xy), bool)
+    inside = awnings = signs = stair = none
+    if plan.get("building"):
+        X0, X1, Y0, Y1 = plan["building"]["footprint"]
+        inside = (xy[:, 0] > X0 - 0.15) & (xy[:, 0] < X1 + 0.1) & (xy[:, 1] > Y0 - 0.15) & (xy[:, 1] < Y1 + 0.3) & (z > plan["building"]["ground"] - 0.5) & (z < 13.6)
+        # the awnings and signs reach out over the sidewalk
+        awnings = (((xy[:, 1] > Y0 - 0.8) & (xy[:, 0] > X0 - 0.8) & (xy[:, 0] < X1 + 0.1)) |
+                   ((xy[:, 0] > X0 - 0.8) & (xy[:, 1] > Y0 - 0.8) & (xy[:, 1] < Y1 + 0.3))) & (z > 4.8) & (z < 13.6)
+        signs = (((xy[:, 1] > Y0 - 0.35) & (xy[:, 0] > X0 - 0.35) & (xy[:, 0] < 12.9)) |
+                 ((xy[:, 0] > X0 - 0.35) & (xy[:, 1] > Y0 - 0.35) & (xy[:, 1] < 16.6))) & (z > -0.1) & (z < 4.0)
+        stair = (xy[:, 0] > 12.5) & (xy[:, 0] < 14.8) & (xy[:, 1] > 5.8) & (xy[:, 1] < 9.6) & (z > -2.6) & (z < 2.2)
     props = np.zeros(len(xy), bool)
     for cx, cy in plan.get("cones", []):
         props |= (np.hypot(xy[:, 0] - cx, xy[:, 1] - cy) < 0.35) & (above < 1.0)
     if plan.get("sign_post"):
         px, py = plan["sign_post"]["xy"]
         props |= (np.hypot(xy[:, 0] - px, xy[:, 1] - py) < 0.55) & (above < 3.2)
+    # poles replaced by the city kit's pole (placed in Unreal by citykit/place_kit.py)
+    for px, py in plan.get("kit_poles", []):
+        props |= (np.hypot(xy[:, 0] - px, xy[:, 1] - py) < 0.6) & (above > -0.3) & (above < 10.0)
     # local clean up inside the zone box (2 m margin): thin faint streaks, and specks floating with nothing near
     x0, x1, y0, y1 = plan["box"]
     near = (xy[:, 0] > x0 - 2) & (xy[:, 0] < x1 + 2) & (xy[:, 1] > y0 - 2) & (xy[:, 1] < y1 + 2)
@@ -580,8 +588,9 @@ def plan_image(plan, domain, sidewalks, road, out):
             d.polygon([to(p) for p in hole.coords], fill=(25, 25, 30))
     for poly in sidewalks.values():
         d.polygon([to(p) for p in poly.exterior.coords], fill=(150, 150, 140), outline=(230, 230, 220))
-    X0, X1, Y0, Y1 = plan["building"]["footprint"]
-    d.rectangle((to([X1, Y0])[0], to([X1, Y0])[1], to([X0, Y1])[0], to([X0, Y1])[1]), fill=(160, 60, 50))
+    if plan.get("building"):
+        X0, X1, Y0, Y1 = plan["building"]["footprint"]
+        d.rectangle((to([X1, Y0])[0], to([X1, Y0])[1], to([X0, Y1])[0], to([X0, Y1])[1]), fill=(160, 60, 50))
     for m in plan["manholes"]:
         cx, cy = to([m["x"], m["y"]])
         d.ellipse((cx - 6, cy - 6, cx + 6, cy + 6), fill=(30, 30, 30), outline=(200, 200, 200))
@@ -598,15 +607,15 @@ def main(zone):
     raw_floor = Floor(collision)
     box = plan["box"]
     zone_box = shapely_box(box[0], box[2], box[1], box[3])
-    footprint = plan["building"]["footprint"]
-    building = shapely_box(footprint[0], footprint[2], footprint[1], footprint[3])
+    footprint = plan["building"]["footprint"] if plan.get("building") else None
+    building = shapely_box(footprint[0], footprint[2], footprint[1], footprint[3]) if footprint else shapely.Polygon()
     sidewalks = {k: Polygon(v).buffer(0).intersection(zone_box).difference(building) for k, v in plan["sidewalks"].items()}
     blocked = unary_union([building] + [Polygon(v) for k, v in plan.get("scan_buildings", {}).items() if not k.startswith("_")])
     domain = unary_union([walkable_polygon(plan["stage"], box)] + list(sidewalks.values())).difference(blocked)
     # drop slivers left between the walkable outline and the sidewalks
     domain = unary_union([g for g in getattr(domain, "geoms", [domain]) if g.area > 2.0]).buffer(0.05).buffer(-0.05)
     # the two outer corners are only measured roughly: keep them to the walkable ground
-    for k in ("south_west_corner", "south_east_corner"):
+    for k in [k for k in ("south_west_corner", "south_east_corner") if k in sidewalks]:
         sidewalks[k] = sidewalks[k].intersection(walkable_polygon(plan["stage"], box))
     sidewalks = {k: (max(v.geoms, key=lambda g: g.area) if v.geom_type != "Polygon" else v) for k, v in sidewalks.items() if not v.is_empty}
 
@@ -615,8 +624,10 @@ def main(zone):
           f"at most {floor.stats['max_above'] * 100:.0f} cm above")
     meshes, road = ground_meshes(plan, floor, domain, sidewalks)
     tints = control_texture(plan, road, unary_union(list(sidewalks.values())), out)
-    hero, crops, stair_mesh, glass_photos = blue_elephant(plan, out, floor)
-    meshes.append(stair_mesh)
+    crops, glass_photos = [], {}
+    if plan.get("building"):
+        hero, crops, stair_mesh, glass_photos = blue_elephant(plan, out, floor)
+        meshes.append(stair_mesh)
     board = plan.get("sign_post", {}).get("board")
     if board:
         b = plan["building"]["front_photo"]
@@ -626,7 +637,8 @@ def main(zone):
     meshes.append(props(plan, floor, out))
     for record in glass_photos.values():
         Image.open(os.path.join(OUT_DIR, plan["stage"], record["file"])).save(os.path.join(out, record["file"]))
-    meshes.append(hero)
+    if plan.get("building"):
+        meshes.append(hero)
     meshkit.save(meshes, os.path.join(out, "meshes.json"))
 
     scan = Scan(plan["stage"])
@@ -635,6 +647,7 @@ def main(zone):
     # the high quality variant keeps the scanned building (it is sharper than the model from the street): only the
     # splats under the new ground, stair and props and the clean up go
     keep_building = remove & ~parts["building"]
+    np.save(os.path.join(out, "removed_keepbuilding.npy"), np.packbits(keep_building))
     write_ply(os.path.join(out, f"{zone}_KeepBuilding.ply"), scan.header, scan.data[~keep_building])
     plan_image(plan, domain, sidewalks, road, out)
     info = {"zone": zone, "box": box, "tints": tints, "signs": crops, "glass": glass_photos, "splats": int(len(remove)), "removed": counts,
