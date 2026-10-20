@@ -26,7 +26,8 @@ public:
 	/** Constructor */
 	AScanSplatActor();
 
-	/** Applies -SplatLOD=<error threshold> and -SplatSH=<order> from the command line, for quick quality comparisons */
+	/** Applies -SplatLOD=<error threshold>, -SplatSH=<order>, -SplatOpacity=, -SplatScale= and -SplatAsset=<path>
+	 *  from the command line, for quality comparisons from the same camera */
 	virtual void BeginPlay() override;
 
 	/** Returns the splat component */

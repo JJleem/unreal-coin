@@ -19,6 +19,10 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Paths.h"
 #include "UnrealClient.h"
+#include "GameFramework/HUD.h"
+#include "Misc/App.h"
+#include "HAL/IConsoleManager.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Containers/Ticker.h"
 
 UDevCapture::UDevCapture()
@@ -59,6 +63,59 @@ void UDevCapture::BeginPlay()
 	}
 	FParse::Value(CommandLine, TEXT("ShotPitch="), ShotPitch);
 	bQuitAfterShots = FParse::Param(CommandLine, TEXT("QuitAfterShots"));
+	bHidePlayer = FParse::Param(CommandLine, TEXT("HidePlayer"));
+	bNoHUD = FParse::Param(CommandLine, TEXT("NoHUD"));
+
+	FString Cvars;
+	if (FParse::Value(CommandLine, TEXT("Cvars="), Cvars, false))
+	{
+		TArray<FString> Entries;
+		Cvars.ParseIntoArray(Entries, TEXT(";"));
+		for (const FString& Entry : Entries)
+		{
+			FString Name, Value;
+			if (Entry.Split(TEXT("="), &Name, &Value))
+			{
+				if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(*Name))
+				{
+					Variable->Set(*Value, ECVF_SetByConsole);
+				}
+				else
+				{
+					UE_LOG(LogCoinDemo, Warning, TEXT("Cvars: no console variable %s"), *Name);
+				}
+			}
+		}
+	}
+	if (ShotTimes.Num() > 0 || Views.Num() > 0 || !Cvars.IsEmpty())
+	{
+		for (const TCHAR* Name : { TEXT("r.ScreenPercentage"), TEXT("r.AntiAliasingMethod"), TEXT("gs.DebugForceLODLevel"), TEXT("r.Tonemapper.Sharpen") })
+		{
+			if (const IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name))
+			{
+				UE_LOG(LogCoinDemo, Log, TEXT("Render setting %s = %s"), Name, *Variable->GetString());
+			}
+		}
+	}
+
+	// each view: move there, give the camera two seconds to settle, then shoot
+	FString ViewList;
+	if (FParse::Value(CommandLine, TEXT("Views="), ViewList, false))
+	{
+		TArray<FString> Entries;
+		ViewList.ParseIntoArray(Entries, TEXT(";"));
+		for (const FString& Entry : Entries)
+		{
+			TArray<FString> Parts;
+			Entry.ParseIntoArray(Parts, TEXT(","));
+			if (Parts.Num() >= 5)
+			{
+				Views.Add({ FVector(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2])),
+					FRotator(FCString::Atof(*Parts[4]), FCString::Atof(*Parts[3]), 0.0f) });
+				ShotTimes.Add(NextViewTime + 2.0f + 3.0f * (Views.Num() - 1));
+			}
+		}
+	}
 
 	FString Start;
 	if (FParse::Value(CommandLine, TEXT("StartAt="), Start, false))
@@ -115,7 +172,7 @@ void UDevCapture::BeginPlay()
 		}
 	}
 
-	SetComponentTickEnabled(ShotTimes.Num() > 0 || BotSteps.Num() > 0 || StartTransform.IsSet());
+	SetComponentTickEnabled(ShotTimes.Num() > 0 || BotSteps.Num() > 0 || StartTransform.IsSet() || bNoHUD || bHidePlayer);
 }
 
 void UDevCapture::RunBotStep()
@@ -201,6 +258,41 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 	const float Now = GetWorld()->GetRealTimeSeconds();
 	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
 	ACoinDemoCharacter* Character = Cast<ACoinDemoCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0));
+
+	// frame rate since the last screenshot; the first second after loading is skipped
+	if (Now > 1.0f)
+	{
+		const double Delta = FApp::GetDeltaTime();
+		++FrameCount;
+		FrameTime += Delta;
+		WorstFrame = FMath::Max(WorstFrame, Delta);
+	}
+
+	if (bNoHUD && PC && PC->GetHUD())
+	{
+		PC->GetHUD()->bShowHUD = false;
+	}
+
+	if (Views.IsValidIndex(NextView) && Now >= NextViewTime && Character && PC)
+	{
+		const TPair<FVector, FRotator>& View = Views[NextView++];
+		Character->TeleportTo(View.Key, FRotator(0.0f, View.Value.Yaw, 0.0f), false, true);
+		Character->GetCharacterMovement()->StopMovementImmediately();
+		PC->SetControlRotation(View.Value);
+		NextViewTime += 3.0f;
+	}
+
+	if (bHidePlayer && Character)
+	{
+		Character->SetActorHiddenInGame(true);
+		for (UActorComponent* Component : Character->GetComponents())
+		{
+			if (USceneComponent* Scene = Cast<USceneComponent>(Component))
+			{
+				Scene->SetHiddenInGame(true, true);
+			}
+		}
+	}
 
 	// move the player to the requested start once it exists
 	if (StartTransform.IsSet() && Character && PC)
@@ -290,7 +382,11 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 		ShotTimes.RemoveAt(0);
 		const FString File = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Screenshots") / FString::Printf(TEXT("%s_%02d.png"), *ShotName, ++ShotCount));
 		FScreenshotRequest::RequestScreenshot(File, true, false);
-		UE_LOG(LogCoinDemo, Log, TEXT("Screenshot %s at %.1fs, player at %s"), *File, Now, Character ? *Character->GetActorLocation().ToCompactString() : TEXT("-"));
+		UE_LOG(LogCoinDemo, Log, TEXT("Screenshot %s at %.1fs, player at %s, %.0f fps average (worst frame %.1f ms)"), *File, Now,
+			Character ? *Character->GetActorLocation().ToCompactString() : TEXT("-"), FrameTime > 0.0 ? FrameCount / FrameTime : 0.0, WorstFrame * 1000.0);
+		FrameCount = 0;
+		FrameTime = 0.0;
+		WorstFrame = 0.0;
 
 		if (ShotTimes.Num() == 0 && bQuitAfterShots)
 		{

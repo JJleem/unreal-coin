@@ -18,7 +18,13 @@
  *    -StartAt=x,y,z,yaw   put the player here when play starts
  *    -LightScale=0.5      multiply the intensity of every light in the level
  *    -ExposureBias=1      switch post process volumes to manual exposure with this bias
+ *    -Views=x,y,z,yaw,pitch;...  visit these camera views in turn and screenshot each (player placed at x,y,z), for
+ *                         comparing render settings or scan versions from exactly the same cameras
+ *    -Cvars=a=1;b=2       set console variables when play starts (and log the render settings that matter here)
+ *    -NoHUD               hide the HUD, for clean comparison shots
+ *    -HidePlayer          hide the player character (the camera still follows it)
  *    -QuitAfterShots      exit after the last screenshot
+ *  Every screenshot also logs the average frame rate since the previous one.
  *  Does nothing without those arguments, so it is safe to leave on the GameMode.
  */
 UCLASS(ClassGroup=(CoinDemo))
@@ -62,6 +68,18 @@ class UDevCapture : public UActorComponent
 	float ShotPitch = -10.0f;
 
 	bool bQuitAfterShots = false;
+	bool bHidePlayer = false;
+	bool bNoHUD = false;
+
+	/** -Views: player location, and camera yaw and pitch per view; the next one to visit */
+	TArray<TPair<FVector, FRotator>> Views;
+	int32 NextView = 0;
+	float NextViewTime = 3.0f;
+
+	/** Frames and real seconds since the last screenshot, for the frame rate log */
+	int32 FrameCount = 0;
+	double FrameTime = 0.0;
+	double WorstFrame = 0.0;
 
 public:
 

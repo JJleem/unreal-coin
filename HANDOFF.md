@@ -134,7 +134,10 @@ C:\UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe <repo>\CoinDemo\CoinDemo.uproje
 
 | 순서 | 스크립트 | 어디서 | 하는 일 |
 |---|---|---|---|
-| 1 | `clean_scans.py` | 밖 | 스캔에서 줄무늬, 안개처럼 보이는 스플랫 제거 → `SourceAssets/CleanScans` |
+| 1 | `clean_scans.py [Name]` | 밖 | 스캔에서 줄무늬, 안개, 떠 있는 조각 제거 → `SourceAssets/CleanScans`, 규칙별 개수 `generated/<Name>_clean.json`. v2 규칙은 `V2_STAGES`(현재 홍대만) |
+| - | `reimport_stage_scan.py` | 에디터 | 정리본이 바뀐 스테이지의 스플랫 에셋을 같은 자리에 다시 가져오기(레벨은 그대로) |
+| - | `import_test_splats.py` | 에디터 | `generated/import_jobs.json`의 PLY들을 `/Game/Stages/Tests/`에 비교용 에셋으로 가져오기. 게임에서 `-SplatAsset=`로 바꿔 봄 |
+| - | `make_road_layer.py` → `build_road_layer.py` | 밖 → 에디터 | (실험, 미적용) 도로를 위에서 구운 정사영상 메시로 교체. 3-5절 참고 |
 | 2 | `make_scan_collision.py` | 밖 | 바닥, 벽, 부술 수 있는 장애물, 코인, 시작 방향 계산 → `generated/<Name>_collision.json/png` |
 | 0 | `make_materials.py` | 에디터 | 홀로그램, 발밑 그림자, 코인 재질 (`/Game/CoinGame/Materials`) |
 | 3 | `build_scan_stages.py` | 에디터 | 스플랫 가져오기 + LOD, 충돌 메시, 방어막 재질, 조명, 노출, 코인, 홀로그램 코스로 스테이지 맵 생성 |
@@ -188,7 +191,23 @@ ANNX README의 공식과 같아서 **Splat Actor에는 회전 없이 균일 축�
 - 광화문, 제주는 SH 3차, 홍대, 경기전은 원본이 1차입니다. 정렬은 매 프레임.
 - 프로젝트 설정: FXAA, 모션 블러 끔 (스플랫은 모션 벡터가 없어서 TSR과 모션 블러가 번짐을 만듦).
 
-### 3-6. 헤드리스(Commandlet) 실행 시 주의
+### 3-6. 스캔 화질 분석과 정리 (2026-10-20, 홍대)
+같은 카메라 6곳(`DevCapture -Views=`)에서 바꿔 가며 찍어 비교했습니다. 결과 이미지: `CoinDemo/Saved/ScanQuality/` (로컬).
+
+원인별 결론
+- **원본 데이터**: 홍대는 SH 1차(ANNX가 3차→1차로 줄임), 불투명도 중앙값 0.06(0.9 이상 0.1%)으로 도로·벽이 희미한 스플랫 여러 겹입니다. 학습 방식의 특성이라 전체 불투명도를 올려 덮지 않았습니다.
+- **시점 외삽**: 건물 위쪽이 녹아내린 것처럼 보이는 것, 높은 곳(점프대 발판)에서 본 건물 뒤편의 번짐은 촬영하지 않은 각도라서 생깁니다. 어떤 필터로도 나아지지 않았습니다 → **재촬영(드론·높은 시점) 또는 재학습이 필요**.
+- **렌더러(OpenSplat4D)**: 투영, 0.3px 저역 필터, 가우시안 감쇠, sRGB 블렌딩이 표준 3DGS와 같고 화면 해상도로 그립니다. `GaussianSharpness`는 셰이더에서 쓰이지 않습니다. `LODErrorThreshold`는 컬링에 그대로 쓰이고(0.1 하한은 캐시 비교용), `gs.DebugForceLODLevel 0`(최고 LOD 강제)도 차이가 없었습니다.
+- **렌더 설정**: 렌더 해상도 150%는 작은 글자가 약간 선명하지만 FPS가 약 120→55로 절반, 톤매퍼 샤프닝·TSR·AA 끔은 차이가 미미해서 바꾸지 않았습니다.
+- **정리 가능한 것**: 도로의 검은 긁힘(길쭉한 반투명 스플랫), 지붕 위 흰 조각(떠 있는 고립 스플랫).
+
+적용한 정리 v2 (`clean_scans.py`): 기존 v1 + 길쭉한 반투명(길이비>15, 불투명도<0.4) + 작은 고립(8번째 이웃>0.3m이고 자기 크기의 3배 이상) + 하늘 조각(기둥별 상단 위의 고립). 4,689,666 → 4,390,703개(6.4% 제거, v1은 2.6%).
+- 측정: 도로 어두운 긁힘 픽셀 시점별 5~9% 감소, 하늘 잡티 지표 16.4→16.0. FPS 같거나 약간 높음(교차 측정). 간판·계단·인도 디테일 손실 없음.
+- 시도했다가 버린 것: 바닥 아래 스플랫 제거(도로에 검은 구멍), 크기 기준 제거(맨홀·균열·노면표시가 지워짐), 크기 무관 고립 제거(뒤의 어두운 층이 드러나 도로 얼룩), 높이 기준 하늘 제거(건물 위쪽 벽이 반투명해짐).
+- **도로 정사영상 메시(미적용)**: 도로 스플랫을 위에서 앞→뒤로 합성해 텍스처를 굽고 바닥 높이맵 메시에 입혀 도로 스플랫을 대체(`Lvl_HongdaeHybrid`, 로컬). 긁힘은 60~70% 줄었지만, 촬영 경로 아래 위에서 안 보인 곳이 어두운 웅덩이처럼 보이고 먼 횡단보도가 뭉개지고 차·콘 밑동이 잘려 **원본보다 나빠서 적용하지 않았습니다**. 노출 보정 계수 0.022(수동 노출 +5.5 기준), 역 ACES로 스플랫과 밝기를 맞춤.
+- 되돌리기: `clean_scans.py`의 `V2_STAGES`를 비우고 실행 → `reimport_stage_scan.py`. v1 정리본 사본: `SourceAssets/ScanTests/Hongdae_clean_v1.ply`.
+
+### 3-7. 헤드리스(Commandlet) 실행 시 주의
 - 플러그인의 `AGaussianSplatActor`는 `NotPlaceable` → 배치 가능한 래퍼 `AScanSplatActor` 사용.
 - `spawn_actor_from_object`, 라인 트레이스는 헤드리스에서 동작하지 않습니다.
 - 로드된 에셋은 `delete_asset`이 조용히 실패할 수 있습니다. 스플랫 재가져오기가 안 되면 `.uasset`을 직접 지우세요.
@@ -241,6 +260,8 @@ UnrealEditor.exe <repo>\CoinDemo\CoinDemo.uproject /Game/Stages/Lvl_Hongdae -gam
 - 봇 동작: `fwd/back/left/right[:초]`, `coin`(가까운 코인으로), `smash`(가까운 장애물로), `collectall`(치트), `jump`, `wait`, 캐릭터 함수 이름(`DoRoll`, `DoCrouch` 등),
   메뉴 키 `MenuUp/MenuDown/MenuLeft/MenuRight/MenuConfirm/MenuBack` (타이틀처럼 캐릭터가 없어도 동작)
 - 스크린샷 시간은 실제 시간 기준이라 일시정지 메뉴도 찍힙니다.
+- 화질 비교: `-Views=x,y,z,yaw,pitch;...`(시점마다 3초), `-NoHUD`, `-HidePlayer`, `-Cvars=r.ScreenPercentage=150;...`, `-SplatAsset=/Game/Stages/Tests/...`, `-SplatOpacity=`, `-SplatScale=`. 스크린샷마다 직전 구간 평균 FPS가 로그에 남습니다.
+- WSL에서 `/mnt/c`의 큰 PLY를 `np.fromfile`로 읽으면 가끔 덜 읽힙니다. 스크립트는 한 번에 읽고 길이를 확인합니다.
 - 스크린샷: `CoinDemo/Saved/Screenshots/<ShotName>_NN.png`
 - 비교용: `-SplatLOD=`, `-SplatSH=`, `-LightScale=`, `-ExposureBias=`
 
