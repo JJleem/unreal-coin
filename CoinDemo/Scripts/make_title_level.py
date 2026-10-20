@@ -1,6 +1,6 @@
 """
 Creates /Game/Stages/Lvl_Title, the title screen backdrop: a copy of a built scan stage without its coins, gem and
-player start camera clutter. ACoinDemoGameMode recognises it by name, spawns no player and circles a camera
+holographic course. ACoinDemoGameMode recognises it by name, spawns no player and circles a camera
 around its player start. Run after build_scan_stages.py and place_courses.py.
 
   UnrealEditor-Cmd.exe CoinDemo.uproject -run=pythonscript -script="<this file>"
@@ -16,7 +16,8 @@ actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 levels.load_level(SOURCE)
 removed = 0
 for actor in actors.get_all_level_actors():
-    if isinstance(actor, (unreal.CoinPickup, unreal.GemPickup)):
+    # pickups and the holographic course: the orbiting camera would fly through the jump pad's light column
+    if isinstance(actor, (unreal.CoinPickup, unreal.GemPickup)) or actor.get_actor_label().startswith("Course_"):
         actors.destroy_actor(actor)
         removed += 1
 
