@@ -69,6 +69,14 @@ void UGameFeelComponent::BeginPlay()
 		break;
 	}
 	BlobShadow->SetVisibility(bScanStage);
+	for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+	{
+		if (It->ActorHasTag(TEXT("LitGround")))
+		{
+			const FBox Bounds = It->GetComponentsBoundingBox();
+			LitGround.Add(FBox2D(FVector2D(Bounds.Min), FVector2D(Bounds.Max)));
+		}
+	}
 	BlobShadowMaterial = bScanStage ? BlobShadow->CreateDynamicMaterialInstance(0) : nullptr;
 }
 
@@ -199,6 +207,14 @@ void UGameFeelComponent::UpdateBlobShadow()
 
 	// find the floor below, ignoring the character itself
 	const FVector Start = Character->GetActorLocation();
+	for (const FBox2D& Area : LitGround)
+	{
+		if (Area.IsInside(FVector2D(Start)))
+		{
+			BlobShadowMaterial->SetScalarParameterValue(TEXT("Strength"), 0.0f);
+			return;
+		}
+	}
 	FHitResult Hit;
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(BlobShadow), false, Character);
 	if (!GetWorld()->LineTraceSingleByChannel(Hit, Start, Start - FVector(0.0f, 0.0f, 2000.0f), ECC_Visibility, Params))

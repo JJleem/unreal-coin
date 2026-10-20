@@ -217,7 +217,18 @@ ANNX README의 공식과 같아서 **Splat Actor에는 회전 없이 균일 축�
 - 결과 판단: 정면 시점은 원본과 거의 같고, 건물 윤곽·모퉁이 벽이 단단해지고 정면 위 떠다니는 잡티가 사라짐. 대신 정면 텍스처가 원본보다 약간 흐리고, 유리의 하늘 반사(SH 시점 의존)가 사라지며, 사진이 없는 옆면·지붕은 단색. 멀리 녹아내린 건물 상단(시점 외삽)은 메시 텍스처에도 그대로 구워짐. 그래서 **실제 스테이지에는 아직 적용하지 않음**.
 - 재실행: `rebuild/analyze_layout.py Hongdae` → `rebuild/build_geometry.py Hongdae`(약 3.5분) → 에디터 Python `rebuild\build_rebuilt_level.py`. 비교 이미지: `CoinDemo/Saved/ScanQuality/Rebuilt/`.
 
-### 3-8. 헤드리스(Commandlet) 실행 시 주의
+### 3-8. 홍대 구역 A 정밀 재구성 (2026-10-20, 테스트 레벨)
+`Lvl_Hongdae_ZoneA`(하이브리드), `Lvl_Hongdae_ZoneA_MeshOnly`(메시만). 실제 스테이지는 그대로입니다.
+- 범위: 시작 교차로 + 붉은 골목 첫 20m(x -5~24, y -9~12) + Blue Elephant 건물 1동.
+- 도면: `Scripts/rebuild/zones/Hongdae_A.json`. 정사영상(2.5cm/px)·벽 밀도 지도·정면 사진(1.25cm/px)에서 사람이 읽어 낸 벡터(보도 4개, 맨홀 7개, 건물 층·창·간판 위치). 오차 약 0.2~0.3m.
+- 도로/보도: `build_zone.py` → 실제 다각형 경계로 삼각분할, 높이는 충돌 바닥. 보도 13cm 턱 + 연석 면. 노면 표시(흰색·노란색)는 정사영상에서 추출, 큰 막대(횡단보도)는 직사각형으로 다시 그림. 붉은 포장 구역. 도로 밝기의 큰 얼룩은 정사영상에서 가져와 타일 반복을 깸.
+- 재질: ambientCG CC0 PBR(`SourceAssets/Textures/pbr`, LICENSE.txt): Road012A 아스팔트, Concrete034 보도·연석, Metal063 외장재, PaintedPlaster017, Bricks097, CorrugatedSteel009 차양, RoofingTiles014B 지붕, Metal046B 창틀·맨홀. 색은 스캔 평균색에 맞춘 틴트.
+- 건물: 층별 상자 + 유리·멀리언·창틀·창턱·차양 2단·맨사드 지붕·도머 3개. 간판과 포스터는 정면 사진에서 잘라 씀(측면 간판은 정면 것을 재사용, 근사). 유리는 정면 사진을 투영한 발광 + 반사.
+- 조명 보정: 스캔용 조명이 PBR 표면엔 약 9배 밝아서, 이 레벨만 태양 ×0.11, 하늘빛 ×0.3, 대기 하늘 밝기 ×9로 보정(같은 시점 스크린샷 비교로 측정, `zones/Hongdae_A_calibration.json`). 도로 평균색이 스캔과 ±5% 이내.
+- 함정: 파이썬으로 만든 머티리얼 인스턴스의 텍스처 파라미터가 -game 실행에서 기본 체커로 나옴 → 표면마다 텍스처를 노드에 직접 넣은 머티리얼로 생성.
+- 재실행: `rebuild/build_zone.py Hongdae_A` → 에디터 Python `rebuild\build_zone_level.py`.
+
+### 3-9. 헤드리스(Commandlet) 실행 시 주의
 - 플러그인의 `AGaussianSplatActor`는 `NotPlaceable` → 배치 가능한 래퍼 `AScanSplatActor` 사용.
 - `spawn_actor_from_object`, 라인 트레이스는 헤드리스에서 동작하지 않습니다.
 - 로드된 에셋은 `delete_asset`이 조용히 실패할 수 있습니다. 스플랫 재가져오기가 안 되면 `.uasset`을 직접 지우세요.

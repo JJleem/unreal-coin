@@ -63,6 +63,9 @@ protected:
 	/** Real time (unaffected by time dilation) when the current hit stop ends, or 0 */
 	double HitStopEnd = 0.0;
 
+	/** Footprints (XY) of meshes tagged LitGround: real shadows fall there, so the blob shadow hides */
+	TArray<FBox2D> LitGround;
+
 	float StepDistance = 0.0f;
 	ETraversalAction LastAction = ETraversalAction::None;
 

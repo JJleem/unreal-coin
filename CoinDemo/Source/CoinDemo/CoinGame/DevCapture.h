@@ -74,6 +74,7 @@ class UDevCapture : public UActorComponent
 	/** -Views: player location, and camera yaw and pitch per view; the next one to visit */
 	TArray<TPair<FVector, FRotator>> Views;
 	int32 NextView = 0;
+	TOptional<FRotator> HeldView;
 	float NextViewTime = 3.0f;
 
 	/** Frames and real seconds since the last screenshot, for the frame rate log */

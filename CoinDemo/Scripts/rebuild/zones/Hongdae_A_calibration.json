@@ -1,0 +1,19 @@
+{
+ "_comment": "measured on screenshots of the same views (scan / rendered, linear) with LIGHT_SCALE 0.11 and white light: white_balance applies to every lit surface (the sun is warm through the atmosphere), red only to the red pavement",
+ "white_balance": [
+  0.872,
+  0.966,
+  1.49
+ ],
+ "red": [
+  0.587,
+  0.539,
+  0.483
+ ],
+ "sidewalk": [
+  1.0,
+  0.95,
+  0.7
+ ],
+ "_sidewalk": "eyeballed against the scan's plaza: the sky light turns horizontal light surfaces lavender"
+}

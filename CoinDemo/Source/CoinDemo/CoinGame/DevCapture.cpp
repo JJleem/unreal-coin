@@ -112,7 +112,6 @@ void UDevCapture::BeginPlay()
 			{
 				Views.Add({ FVector(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2])),
 					FRotator(FCString::Atof(*Parts[4]), FCString::Atof(*Parts[3]), 0.0f) });
-				ShotTimes.Add(NextViewTime + 2.0f + 3.0f * (Views.Num() - 1));
 			}
 		}
 	}
@@ -172,7 +171,7 @@ void UDevCapture::BeginPlay()
 		}
 	}
 
-	SetComponentTickEnabled(ShotTimes.Num() > 0 || BotSteps.Num() > 0 || StartTransform.IsSet() || bNoHUD || bHidePlayer);
+	SetComponentTickEnabled(ShotTimes.Num() > 0 || Views.Num() > 0 || BotSteps.Num() > 0 || StartTransform.IsSet() || bNoHUD || bHidePlayer);
 }
 
 void UDevCapture::RunBotStep()
@@ -276,10 +275,20 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 	if (Views.IsValidIndex(NextView) && Now >= NextViewTime && Character && PC)
 	{
 		const TPair<FVector, FRotator>& View = Views[NextView++];
+		HeldView = View.Value;
 		Character->TeleportTo(View.Key, FRotator(0.0f, View.Value.Yaw, 0.0f), false, true);
 		Character->GetCharacterMovement()->StopMovementImmediately();
 		PC->SetControlRotation(View.Value);
-		NextViewTime += 3.0f;
+		// the shot follows its teleport, so a slow start can't shift shots onto the wrong view
+		ShotTimes.Add(Now + 2.0f);
+		ShotTimes.Sort();
+		NextViewTime = Now + 3.0f;
+	}
+
+	// hold the view's camera angle against anything that turns the controller while settling
+	if (HeldView.IsSet() && PC)
+	{
+		PC->SetControlRotation(HeldView.GetValue());
 	}
 
 	if (bHidePlayer && Character)
@@ -388,7 +397,7 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 		FrameTime = 0.0;
 		WorstFrame = 0.0;
 
-		if (ShotTimes.Num() == 0 && bQuitAfterShots)
+		if (ShotTimes.Num() == 0 && !Views.IsValidIndex(NextView) && bQuitAfterShots)
 		{
 			// a core ticker, so it also fires while the game is paused
 			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([](float) { FPlatformMisc::RequestExit(false, TEXT("DevCapture")); return false; }), 1.5f);
