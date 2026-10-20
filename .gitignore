@@ -27,3 +27,7 @@ __pycache__/
 
 # Cook file order logs written next to the project
 CoinDemo/Build/Windows/FileOpenOrder/
+
+# Parking Tower scan data and reference video (local only)
+parking-tower/
+Referense/
