@@ -51,7 +51,7 @@ void ABreakableBarrier::BeginPlay()
 			{
 				Material->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.0f, 0.45f, 0.1f));
 				Material->SetScalarParameterValue(TEXT("Fill"), 0.22f);
-				Material->SetScalarParameterValue(TEXT("Intensity"), 2.0f * HoloStyle::GetIntensityScale(GetWorld()));
+				Material->SetScalarParameterValue(TEXT("Intensity"), 1.0f * HoloStyle::GetIntensityScale(GetWorld()));
 			}
 		}
 	}

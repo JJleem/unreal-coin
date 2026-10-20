@@ -534,10 +534,13 @@ void ACoinDemoHUD::DrawTutorial(float S, int32 CoinCount)
 		{ TEXT("Shift + C"), TEXT("슬라이딩 (달리면서)") },
 		{ TEXT("Q"), TEXT("구르기") },
 		{ TEXT("Space"), TEXT("기어오르기 (턱 앞에서)") },
+		{ TEXT("초록 원판"), TEXT("점프대: 밟으면 높이 날아감") },
+		{ TEXT("주황 벽"), TEXT("달리기 · 구르기로 부수기") },
+		{ TEXT("◆ 보석"), TEXT("스테이지마다 하나씩 숨어 있음") },
 	};
 
 	const float RowH = 34.0f * S;
-	const float PanelW = 400.0f * S, PanelH = 70.0f * S + RowH * UE_ARRAY_COUNT(Controls);
+	const float PanelW = 460.0f * S, PanelH = 70.0f * S + RowH * UE_ARRAY_COUNT(Controls);
 	const float PanelX = 40.0f * S, PanelY = Canvas->ClipY - PanelH - 40.0f * S;
 	DrawRect(Panel, PanelX, PanelY, PanelW, PanelH);
 	DrawRect(Gold, PanelX, PanelY, 6.0f * S, PanelH);
