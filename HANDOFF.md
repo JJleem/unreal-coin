@@ -230,7 +230,14 @@ ANNX README의 공식과 같아서 **Splat Actor에는 회전 없이 균일 축�
 - 2차(같은 날): 바닥은 충돌 바닥을 3m 중앙값 + 1m 가우시안으로 다듬은 높이장(경사 유지, 노이즈 제거, 바닥 메시도 충돌 있음). 노면 표시는 벡터 도형(막대는 회전 직사각형, 화살표·글자는 다듬은 외곽선, `paint.json`). 보도 Tiles141 30cm 블록, 타일 재질마다 7m 저주파 변화. 계단을 실측(x 12.75–14.55, y 6.0→9.0, z→1.0)대로 강철 계단(줄무늬 철판 디딤판, 옆판, 스테인리스 난간, 참)으로 모델링, 걸어서 오를 수 있음. 간판 25cm 깊이 + 프레임, 출입문 프레임·손잡이, 층 띠, 물받이, 옥상 난간·물탱크·실외기(옥상은 추정). 소품: 교통콘 2개(스캔의 주황 점), 표지판 기둥 + 포스터, 빗물받이 3개(위치 추정). 근처 정리: 얇고 흐린 줄과 떠 있는 조각 제거. `_ScanOnly` 레벨 추가.
 - 비교용 고정 카메라: `DevCapture -Views=x,y,z,yaw,pitch,cam`(6번째 값이 cam이면 그 위치가 카메라). 결과 `Saved/ScanQuality/ZoneA_Final/`.
 
-### 3-9. 헤드리스(Commandlet) 실행 시 주의
+### 3-9. 스플랫 렌더링 품질과 Before/After 데모 (`Scripts/gsquality/`, README.md)
+- 같은 PLY를 표준 3DGS 래스터라이저(PyTorch 재구현)와 언리얼로 같은 카메라에서 그려 비교했습니다. 언리얼 쪽 손실은 두 가지였습니다: FXAA(선명도 약 -20%), 플러그인 합성의 역 ACES가 언리얼 톤매퍼와 안 맞아 중간 톤이 약 20% 어두움.
+- 수정: `gs.ToneCorrection 1`(채널별 LUT, 플러그인 패치 `OpenSplat4D_CoinDemo.patch`, 원본 백업 `SourceAssets/OpenSplat4D_backup`), TSR. 색 오차 0.103 → 0.058, 선명도 기준 대비 69% → 93%.
+- 같다고 확인: 투영·저역 필터·감쇠·정렬·SH 방향·16비트 블렌딩. LOD 최고 강제는 차이 1%.
+- `Lvl_Hongdae_HighQualityGS`: 정리된 스캔(건물은 스캔 유지) + 구역 A의 바닥·연석·계단·소품 메시. **B 키**로 원본 PLY(플러그인 기본값)와 전환. 이 레벨에서만 TSR과 톤 보정이 켜지고 끝나면 원래대로 돌아갑니다.
+- 결과: `Saved/ScanQuality/Hongdae_HighQualityGS/` (시점별 6종 비교, 이동 영상 `motion_before_vs_after.mp4`).
+
+### 3-10. 헤드리스(Commandlet) 실행 시 주의
 - 플러그인의 `AGaussianSplatActor`는 `NotPlaceable` → 배치 가능한 래퍼 `AScanSplatActor` 사용.
 - `spawn_actor_from_object`, 라인 트레이스는 헤드리스에서 동작하지 않습니다.
 - 로드된 에셋은 `delete_asset`이 조용히 실패할 수 있습니다. 스플랫 재가져오기가 안 되면 `.uasset`을 직접 지우세요.
