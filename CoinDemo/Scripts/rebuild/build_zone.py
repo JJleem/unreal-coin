@@ -65,6 +65,36 @@ class Floor:
         return ((h[i0, j0] * (1 - fx) + h[i0 + 1, j0] * fx) * (1 - fy) + (h[i0, j0 + 1] * (1 - fx) + h[i0 + 1, j0 + 1] * fx) * fy)
 
 
+class Surface:
+    """The ground of the zone as a smooth height field: the collision floor over the zone, median filtered over
+    MEDIAN metres (drops bumps where the ground mesh was draped over kerbs, steps and objects) and then gaussian
+    smoothed (no scan noise left in the surface), sampled bilinearly. Real slopes and level changes over more than a
+    few metres stay. (A single cubic polynomial couldn't follow them: a third of the zone was more than 9 cm off.)"""
+
+    MEDIAN, SIGMA, CELL = 3.0, 1.0, 0.25
+
+    def __init__(self, floor, region):
+        minx, miny, maxx, maxy = region.buffer(3.0).bounds
+        self.lo = np.array([minx, miny])
+        xs, ys = np.arange(minx, maxx, self.CELL), np.arange(miny, maxy, self.CELL)
+        gx, gy = np.meshgrid(xs, ys, indexing="ij")
+        z = floor(np.column_stack([gx.ravel(), gy.ravel()])).reshape(gx.shape)
+        z = ndimage.median_filter(z, size=int(self.MEDIAN / self.CELL))
+        self.grid = ndimage.gaussian_filter(z, self.SIGMA / self.CELL)
+        inside = shapely.contains_xy(region, gx, gy)
+        residual = (floor(np.column_stack([gx[inside], gy[inside]])) - self.grid[inside])
+        self.stats = {"p50": float(np.percentile(np.abs(residual), 50)), "p95": float(np.percentile(np.abs(residual), 95)),
+                      "max_above": float(residual.max())}
+
+    def __call__(self, xy):
+        g = (np.atleast_2d(xy) - self.lo) / self.CELL
+        i0 = np.clip(np.floor(g[:, 0]).astype(int), 0, self.grid.shape[0] - 2)
+        j0 = np.clip(np.floor(g[:, 1]).astype(int), 0, self.grid.shape[1] - 2)
+        fx, fy = np.clip(g[:, 0] - i0, 0, 1), np.clip(g[:, 1] - j0, 0, 1)
+        h = self.grid
+        return (h[i0, j0] * (1 - fx) + h[i0 + 1, j0] * fx) * (1 - fy) + (h[i0, j0 + 1] * (1 - fx) + h[i0 + 1, j0 + 1] * fx) * fy
+
+
 def walkable_polygon(name, box):
     """The stage's walkable area (analyze_layout.py) as a smooth polygon, clipped to the zone."""
     layout = json.load(open(os.path.join(GENERATED_DIR, f"{name}_layout.json")))
@@ -107,8 +137,9 @@ def triangulate(region, cell=0.5):
 
 
 def ground_meshes(plan, floor, domain, sidewalks):
+    """floor: the smooth fitted Surface. The road blocks the player too, so feet stay on what is drawn."""
     road = domain.difference(unary_union(list(sidewalks.values())))
-    road_mesh = meshkit.Mesh("SM_Zone_Road", collision="query")
+    road_mesh = meshkit.Mesh("SM_Zone_Road", collision="complex")
     tris = triangulate(road)
     pts, inverse = np.unique(np.round(tris.reshape(-1, 2), 4), axis=0, return_inverse=True)
     z = floor(pts)
@@ -178,33 +209,46 @@ def control_texture(plan, road, sidewalk_union, out):
     yellow = (a[..., 0] - a[..., 2] > 0.18) & (a[..., 1] - a[..., 2] > 0.08) & (luma > 0.3)
     gx, gy = np.meshgrid(xs, ys)
     on_road = shapely.contains_xy(road.buffer(-0.05), gx, gy)
-    paint = []
-    for mask in (white, yellow):
-        mask = mask & on_road
-        labels, n = ndimage.label(mask)
-        sizes = ndimage.sum(mask, labels, range(1, n + 1)) * CONTROL_RES ** 2
-        mask &= np.isin(labels, np.flatnonzero(sizes > 0.03) + 1)
-        # road paint is thin: lines, stripes, arrows, letters. Compact bright blobs (litter, a cap, a reflection)
-        # are not paint
-        from skimage import measure as skmeasure
+    # paint as vector shapes: every painted mark found in the orthophoto becomes a polygon (a rotated rectangle
+    # for bars and lines, a smoothed, simplified outline for arrows and letters), drawn back anti-aliased. No
+    # pixel-ragged edges from the scan reach the texture
+    paint, shapes = [], []
+    from skimage import measure as skmeasure
+    height_px, width_px = white.shape
+    for colour, mask in (("white", white), ("yellow", yellow)):
+        mask = ndimage.binary_closing(mask & on_road, iterations=2)
+        canvas = Image.new("L", (width_px * 4, height_px * 4), 0)
+        draw = ImageDraw.Draw(canvas)
         for region in skmeasure.regionprops(skmeasure.label(mask)):
-            thin = region.axis_minor_length * CONTROL_RES < 0.2 or region.axis_major_length > 3.0 * region.axis_minor_length
-            if region.area * CONTROL_RES ** 2 > 0.06 and not thin and region.solidity > 0.8:
-                mask[tuple(region.coords.T)] = False
+            area = region.area * CONTROL_RES ** 2
+            if area < 0.03:
                 continue
-            # crosswalk stripes and other big painted bars: the orthophoto frays their edges, so a bar that fills
-            # most of its rotated bounding rectangle is redrawn as that rectangle
-            if region.area * CONTROL_RES ** 2 > 0.4:
-                rect = shapely.MultiPoint(region.coords[:, ::-1].astype(float)).minimum_rotated_rectangle
-                if region.area / max(rect.area, 1) > 0.7:
-                    mask[tuple(region.coords.T)] = False
-                    r0, c0, r1, c1 = region.bbox
-                    rr, cc = np.mgrid[max(r0 - 3, 0):min(r1 + 3, mask.shape[0]), max(c0 - 3, 0):min(c1 + 3, mask.shape[1])]
-                    inside = shapely.contains_xy(rect.buffer(-0.5), cc.ravel(), rr.ravel()).reshape(rr.shape)
-                    mask[rr[inside], cc[inside]] = True
-        # clean, slightly rounded paint edges
-        mask = ndimage.binary_closing(mask, iterations=2)
-        paint.append(np.clip(ndimage.gaussian_filter(mask.astype(float), 0.8) * 1.4 - 0.2, 0, 1))
+            # road paint is thin: lines, stripes, arrows, letters. Compact bright blobs (litter, a cap, a
+            # reflection) are not paint
+            thin = region.axis_minor_length * CONTROL_RES < 0.2 or region.axis_major_length > 3.0 * region.axis_minor_length
+            if area > 0.06 and not thin and region.solidity > 0.8:
+                continue
+            points = region.coords[:, ::-1].astype(float)          # (col, row)
+            rect = shapely.MultiPoint(points).minimum_rotated_rectangle
+            if region.area / max(rect.area, 1) > 0.7 or region.axis_major_length > 4.0 * region.axis_minor_length:
+                polygon, kind = rect.buffer(-0.5), "bar"
+            else:
+                sub = np.pad(region.image, 3).astype(float)
+                contour = max(skmeasure.find_contours(ndimage.gaussian_filter(sub, 1.2), 0.5), key=len)
+                r0, c0 = region.bbox[:2]
+                polygon = shapely.Polygon(np.column_stack([contour[:, 1] + c0 - 3, contour[:, 0] + r0 - 3])).buffer(0)
+                polygon, kind = polygon.simplify(0.04 / CONTROL_RES), "glyph"
+            if polygon.is_empty:
+                continue
+            for part in getattr(polygon, "geoms", [polygon]):
+                draw.polygon([(x * 4 + 2, y * 4 + 2) for x, y in np.array(part.exterior.coords)], fill=255)
+                shapes.append({"colour": colour, "kind": kind,
+                               "points": [[round(x0 + (x + 0.5) * CONTROL_RES, 3), round(y0 + (y + 0.5) * CONTROL_RES, 3)]
+                                          for x, y in np.array(part.exterior.coords)]})
+        layer = np.asarray(canvas.resize((width_px, height_px), Image.BOX), float) / 255
+        paint.append(layer)
+    with open(os.path.join(out, "paint.json"), "w") as f:
+        json.dump(shapes, f)
     red = (gx >= plan["red_road_from_x"]).astype(float)
     red = ndimage.gaussian_filter(red, 1.0)
     # large scale brightness variation of the real road (patches, wear), from the orthophoto: luminance blurred
@@ -236,7 +280,7 @@ def photo_crop(record, image_path, u0, u1, z0, z1, outward, out_path):
     crop.save(out_path)
 
 
-def blue_elephant(plan, out):
+def blue_elephant(plan, out, floor):
     """The Blue Elephant corner building: front facing -Y at y = 9.5, side facing -X at x = 6.1."""
     b = plan["building"]
     X0, X1, Y0, Y1 = b["footprint"]
@@ -270,8 +314,18 @@ def blue_elephant(plan, out):
     m.box(10.9, 12.1, Y0 + 0.05, Y0 + T, -2.45, -0.15, "Cladding", faces={"-Y": sign("poster", front, 10.9 - fx0, 12.1 - fx0, -2.45, -0.15, (0, -1))})
     m.box(10.9, 12.1, Y0, Y0 + T, G, -2.45, "Cladding", skip=("-Z",))
     m.box(10.9, 12.1, Y0, Y0 + T, -0.15, 0.0, "Cladding")
-    m.box(X0, 12.1, Y0 - 0.12, Y0, 0.0, 1.0, "Cladding", faces={"-Y": sign("blue_elephant_front", front, X0 - fx0, 12.1 - fx0, 0.0, 1.0, (0, -1))})
-    # the part beside the exterior stair (the stair itself stays scan)
+    # the BLUE ELEPHANT sign is a 25 cm deep box with a dark metal frame round its face
+    m.box(X0, 12.1, Y0 - 0.25, Y0, 0.04, 0.96, "SignFrame", faces={"-Y": sign("blue_elephant_front", front, X0 - fx0, 12.1 - fx0, 0.04, 0.96, (0, -1))})
+    m.box(X0 - 0.02, 12.12, Y0 - 0.27, Y0, 0.0, 0.04, "SignFrame")
+    m.box(X0 - 0.02, 12.12, Y0 - 0.27, Y0, 0.96, 1.0, "SignFrame")
+    # glass door: frame, two leaves, push bars, threshold
+    m.box(8.62, 8.7, Y0 + 0.1, Y0 + 0.3, G, -0.2, "SignFrame", skip=("-Z",))
+    m.box(10.45, 10.53, Y0 + 0.1, Y0 + 0.3, G, -0.2, "SignFrame", skip=("-Z",))
+    m.box(8.62, 10.53, Y0 + 0.1, Y0 + 0.3, -0.28, -0.2, "SignFrame")
+    m.box(8.62, 10.53, Y0 + 0.05, Y0 + 0.3, G - 0.02, G + 0.03, "Steel")
+    for x in (9.25, 9.85):
+        m.beam([x, Y0 + 0.12, G + 0.95], [x, Y0 + 0.12, G + 1.55], 0.035, 0.035, "Stainless")
+    # under the exterior stair: plain plastered wall (the stair is modelled below)
     m.box(12.1, X1, Y0 + 0.2, Y0 + T, G, 1.0, "Plaster", skip=("-Z",))
 
     # ---- front, 2nd floor: Coffee Bean glass, side window
@@ -286,7 +340,9 @@ def blue_elephant(plan, out):
         m.box(x, x + 0.06, Y0 + 0.18, Y0 + 0.26, 1.0, 2.8, "Frame")
     m.box(7.4, 11.5, Y0 + 0.18, Y0 + 0.26, 2.74, 2.8, "Frame")
     # The Coffee Bean sign band
-    m.box(X0, 14.2, Y0 - 0.1, Y0 + T, 2.8, 3.9, "Plaster", faces={"-Y": sign("coffee_bean_front", front, X0 - fx0, 14.2 - fx0, 2.8, 3.9, (0, -1))})
+    m.box(X0, 14.2, Y0 - 0.2, Y0 + T, 2.85, 3.85, "Plaster", faces={"-Y": sign("coffee_bean_front", front, X0 - fx0, 14.2 - fx0, 2.85, 3.85, (0, -1))})
+    m.box(X0 - 0.03, 14.23, Y0 - 0.23, Y0 + T, 2.8, 2.85, "Trim")
+    m.box(X0 - 0.03, 14.23, Y0 - 0.23, Y0 + T, 3.85, 3.9, "Trim")
     m.box(14.2, X1, Y0 - 0.1, Y0 + T, 2.8, 3.9, "Plaster")
 
     # ---- front, 3rd floor: glass strip with mullions
@@ -331,7 +387,9 @@ def blue_elephant(plan, out):
     m.box(X0 + 0.25, X0 + T, 9.9, 16.0, 1.0, 2.8, "GlassSide")
     for y in (9.9, 11.92, 13.94, 15.94):
         m.box(X0 + 0.18, X0 + 0.26, y, y + 0.06, 1.0, 2.8, "Frame")
-    m.box(X0 - 0.1, X0 + T, Y0, 16.6, 2.8, 3.9, "Plaster", faces={"-X": ("Sign_coffee_bean_front", IMG)})
+    m.box(X0 - 0.2, X0 + T, Y0, 16.6, 2.85, 3.85, "Plaster", faces={"-X": ("Sign_coffee_bean_front", IMG)})
+    m.box(X0 - 0.23, X0 + T, Y0 - 0.23, 16.63, 2.8, 2.85, "Trim")
+    m.box(X0 - 0.23, X0 + T, Y0 - 0.23, 16.63, 3.85, 3.9, "Trim")
     m.box(X0, X0 + T, 16.6, Y1, 2.8, 3.9, "Plaster")
     # 3rd floor
     m.box(X0, X0 + T, 16.6, Y1, 3.9, 5.25, "Plaster")
@@ -386,27 +444,125 @@ def blue_elephant(plan, out):
         m.triangle([dx0 - 0.08, dy0 - 0.08, dz1], [dx0 - 0.08, dy1 + 0.08, dz1], [dx0 - 0.08, mid, dz1 + 0.6], [-1, 0, 0], "Plaster")
         m.quad([dx0 - 0.08, dy0 - 0.08, dz1], [X0 + inset, dy0 - 0.08, dz1], [X0 + inset, mid, dz1 + 0.6], [dx0 - 0.08, mid, dz1 + 0.6], [0, -0.6, 0.8], "Roof")
         m.quad([dx0 - 0.08, dy1 + 0.08, dz1], [X0 + inset, dy1 + 0.08, dz1], [X0 + inset, mid, dz1 + 0.6], [dx0 - 0.08, mid, dz1 + 0.6], [0, 0.6, 0.8], "Roof")
+    # ---- structure: slab edges between storeys and a corner pilaster (the bands the photos show)
+    for z in (5.25, 8.0):
+        m.box(X0 - 0.08, X1, Y0 - 0.08, Y0, z - 0.08, z + 0.06, "Trim", skip=("+Y",))
+        m.box(X0 - 0.08, X0, Y0, Y1, z - 0.08, z + 0.06, "Trim", skip=("+X",))
+    m.box(X0 - 0.06, X0 + 0.3, Y0 - 0.06, Y0 + 0.3, 3.9, 5.25, "Plaster")
+    # gutter along the foot of the mansard
+    m.beam([X0 - 0.12, Y0 - 0.12, 8.66], [X1, Y0 - 0.12, 8.66], 0.12, 0.1, "Steel")
+    m.beam([X0 - 0.12, Y0 - 0.12, 8.66], [X0 - 0.12, Y1, 8.66], 0.12, 0.1, "Steel")
+
+    # ---- roof: low parapet round the flat top, a water tank and outdoor units (estimated: the scan doesn't see the
+    # roof; Seoul low-rise roofs commonly carry these)
+    inset, top = 1.6, 11.8
+    for x0_, x1_, y0_, y1_ in ((X0 + inset, X1, Y1 - 0.15, Y1), (X1 - 0.15, X1, Y0 + inset, Y1)):
+        m.box(x0_, x1_, y0_, y1_, top, top + 0.5, "Plaster", skip=("-Z",))
+    m.cylinder((12.6, 17.0), 0.75, top, top + 1.4, "Steel", segments=20)
+    for ux, uy in ((10.0, 13.6), (11.2, 13.6)):
+        m.box(ux, ux + 0.85, uy, uy + 0.35, top, top + 0.65, "Steel", skip=("-Z",))
+
+    # ---- exterior stair to the 2nd floor (measured: x 12.7-14.6, from the plaza at y 6.0 up to z 1.0 at y 9.0)
+    stair(m, plan, floor)
     return m, crops, {"GlassFront": front, "GlassSide": side}
 
 
-def removal(plan, scan, floor, domain, sidewalks):
-    """Splats replaced by the meshes: the ground band over the domain and everything inside the building."""
+def stair(m, plan, floor):
+    """Steel stair with diamond plate treads, channel stringers, stainless railings and a landing."""
+    sx0, sx1, y_start, y_land, z_top = 12.75, 14.55, 6.0, 9.0, 1.0
+    z_base = float(floor([[(sx0 + sx1) / 2, y_start]])[0]) + plan["sidewalk_height"]
+    steps = int(round((z_top - z_base) / 0.185))
+    rise, run = (z_top - z_base) / steps, (y_land - y_start) / steps
+    for i in range(steps):
+        z = z_base + (i + 1) * rise
+        y = y_start + i * run
+        m.box(sx0, sx1, y, y + run + 0.03, z - 0.04, z, "SteelTread")
+        m.box(sx0, sx1, y + run - 0.01, y + run + 0.03, z - rise, z - 0.04, "SteelDark")   # riser plate
+    for x in (sx0 - 0.05, sx1 + 0.05):
+        m.beam([x, y_start - 0.1, z_base - 0.25], [x, y_land, z_top - 0.12], 0.08, 0.3, "SteelDark")
+    m.box(sx0 - 0.1, sx1 + 0.1, y_land, 9.5, z_top - 0.15, z_top, "SteelTread")
+    for y in (7.3,):
+        z = z_base + (y - y_start) / run * rise
+        for x in (sx0 + 0.1, sx1 - 0.1):
+            m.box(x - 0.06, x + 0.06, y - 0.06, y + 0.06, z_base - 0.2, z - 0.3, "SteelDark", skip=("-Z",))
+    # railings on both sides: posts every ~0.9 m, a handrail and two mid rails following the slope, then level on
+    # the landing
+    nose = lambda y: z_base + (y - y_start) / run * rise
+    for x in (sx0 - 0.03, sx1 + 0.03):
+        ys = np.linspace(y_start + 0.05, y_land, max(2, int((y_land - y_start) / 0.9) + 1))
+        for y in ys:
+            m.beam([x, y, nose(y)], [x, y, nose(y) + 0.95], 0.045, 0.045, "Stainless")
+        m.beam([x, 9.47, z_top], [x, 9.47, z_top + 0.95], 0.045, 0.045, "Stainless")
+        for h in (0.95, 0.62, 0.3):
+            m.beam([x, ys[0], nose(ys[0]) + h], [x, y_land, nose(y_land) + h], 0.045 if h == 0.95 else 0.025, 0.045 if h == 0.95 else 0.025, "Stainless")
+            m.beam([x, y_land, z_top + h], [x, 9.47, z_top + h], 0.045 if h == 0.95 else 0.025, 0.045 if h == 0.95 else 0.025, "Stainless")
+
+
+def props(plan, floor, out):
+    """Small street furniture in the zone, at measured spots: traffic cones (orange splats on the scan), the sign
+    post with its poster board at the corner, and gutter grates along the curbs."""
+    m = meshkit.Mesh("SM_Zone_Props", collision="complex")
+    for cx, cy in plan.get("cones", []):
+        z = float(floor([[cx, cy]])[0])
+        m.box(cx - 0.19, cx + 0.19, cy - 0.19, cy + 0.19, z, z + 0.035, "ConeBlack", skip=("-Z",))
+        m.cylinder((cx, cy), (0.15, 0.115), z + 0.035, z + 0.3, "ConeOrange", segments=18, cap=False)
+        m.cylinder((cx, cy), (0.117, 0.085), z + 0.3, z + 0.45, "ConeWhite", segments=18, cap=False)
+        m.cylinder((cx, cy), (0.087, 0.03), z + 0.45, z + 0.72, "ConeOrange", segments=18)
+    post = plan.get("sign_post")
+    if post:
+        px, py = post["xy"]
+        z = float(floor([[px, py]])[0]) + plan["sidewalk_height"]
+        m.cylinder((px, py), 0.04, z, z + post["height"], "Steel", segments=12)
+        b = post["board"]
+        m.box(px - b["w"] / 2, px + b["w"] / 2, py - 0.06, py - 0.04, b["z0"], b["z1"], "Steel",
+              faces={"-Y": ("Sign_board", meshkit.IMAGE_UVS)})
+    for gx, gy, along in plan.get("grates", []):
+        z = float(floor([[gx, gy]])[0]) + 0.006
+        hx, hy = (0.45, 0.2) if along == "x" else (0.2, 0.45)
+        uvs = [[0, 0], [1, 0], [1, 1], [0, 1]] if along == "x" else [[0, 1], [0, 0], [1, 0], [1, 1]]
+        m.quad([gx - hx, gy - hy, z], [gx + hx, gy - hy, z], [gx + hx, gy + hy, z], [gx - hx, gy + hy, z], [0, 0, 1], "Grate", uvs)
+    return m
+
+
+def removal(plan, scan, floor, domain, sidewalks, surface):
+    """Splats replaced by the meshes: the ground band over the domain, everything inside the building, its awnings,
+    signs and stair, the props; plus a local clean up of the zone (thin streaks, floating specks)."""
     xy = scan.pos[:, :2]
-    above = scan.pos[:, 2] - floor(xy)
-    keep = np.ones(len(xy), bool)
+    z = scan.pos[:, 2]
+    above = z - floor(xy)
     in_domain = shapely.contains_xy(domain, xy[:, 0], xy[:, 1])
     walk = shapely.contains_xy(unary_union(list(sidewalks.values())), xy[:, 0], xy[:, 1])
     ground = in_domain & (above > GROUND_BAND[0]) & (above < np.where(walk, SIDEWALK_BAND_TOP, GROUND_BAND[1]))
     X0, X1, Y0, Y1 = plan["building"]["footprint"]
-    z = scan.pos[:, 2]
-    inside = (xy[:, 0] > X0 - 0.15) & (xy[:, 0] < X1 + 0.1) & (xy[:, 1] > Y0 - 0.15) & (xy[:, 1] < Y1 + 0.3) & (z > plan["building"]["ground"] - 0.5) & (z < 12.8)
-    # the awnings and signs reach out over the sidewalk; below them the stair and the pole stay scan
+    inside = (xy[:, 0] > X0 - 0.15) & (xy[:, 0] < X1 + 0.1) & (xy[:, 1] > Y0 - 0.15) & (xy[:, 1] < Y1 + 0.3) & (z > plan["building"]["ground"] - 0.5) & (z < 13.6)
+    # the awnings and signs reach out over the sidewalk
     awnings = (((xy[:, 1] > Y0 - 0.8) & (xy[:, 0] > X0 - 0.8) & (xy[:, 0] < X1 + 0.1)) |
-               ((xy[:, 0] > X0 - 0.8) & (xy[:, 1] > Y0 - 0.8) & (xy[:, 1] < Y1 + 0.3))) & (z > 4.8) & (z < 12.8)
-    signs = (((xy[:, 1] > Y0 - 0.3) & (xy[:, 0] > X0 - 0.3) & (xy[:, 0] < 12.9)) |
-             ((xy[:, 0] > X0 - 0.3) & (xy[:, 1] > Y0 - 0.3) & (xy[:, 1] < 16.6))) & (z > -0.1) & (z < 4.0)
-    remove = ground | inside | awnings | signs
-    return remove, {"ground": int(ground.sum()), "building": int((inside | awnings | signs).sum())}
+               ((xy[:, 0] > X0 - 0.8) & (xy[:, 1] > Y0 - 0.8) & (xy[:, 1] < Y1 + 0.3))) & (z > 4.8) & (z < 13.6)
+    signs = (((xy[:, 1] > Y0 - 0.35) & (xy[:, 0] > X0 - 0.35) & (xy[:, 0] < 12.9)) |
+             ((xy[:, 0] > X0 - 0.35) & (xy[:, 1] > Y0 - 0.35) & (xy[:, 1] < 16.6))) & (z > -0.1) & (z < 4.0)
+    stair = (xy[:, 0] > 12.5) & (xy[:, 0] < 14.8) & (xy[:, 1] > 5.8) & (xy[:, 1] < 9.6) & (z > -2.6) & (z < 2.2)
+    props = np.zeros(len(xy), bool)
+    for cx, cy in plan.get("cones", []):
+        props |= (np.hypot(xy[:, 0] - cx, xy[:, 1] - cy) < 0.35) & (above < 1.0)
+    if plan.get("sign_post"):
+        px, py = plan["sign_post"]["xy"]
+        props |= (np.hypot(xy[:, 0] - px, xy[:, 1] - py) < 0.55) & (above < 3.2)
+    # local clean up inside the zone box (2 m margin): thin faint streaks, and specks floating with nothing near
+    x0, x1, y0, y1 = plan["box"]
+    near = (xy[:, 0] > x0 - 2) & (xy[:, 0] < x1 + 2) & (xy[:, 1] > y0 - 2) & (xy[:, 1] < y1 + 2)
+    scales = np.sort(scan.scale, axis=1)
+    # (a stricter rule, ratio > 8 and opacity < 0.5, removed 190k splats and punched holes in the neighbouring
+    # facades, so only the clearly thin and faint ones go)
+    streak = near & (scales[:, 2] / np.maximum(scales[:, 1], 1e-9) > 12.0) & (scan.opacity < 0.25) & (above > 2.5)
+    idx = np.flatnonzero(near & (above > 2.5))
+    from scipy.spatial import cKDTree
+    distance, _ = cKDTree(scan.pos[idx]).query(scan.pos[idx], k=9, workers=-1)
+    speck = np.zeros(len(xy), bool)
+    speck[idx] = distance[:, 8] > 0.3
+    remove = ground | inside | awnings | signs | stair | props | streak | speck
+    counts = {"ground": int(ground.sum()), "building": int((inside | awnings | signs).sum()), "stair": int(stair.sum()),
+              "props": int(props.sum()), "streaks": int(streak.sum()), "specks": int(speck.sum())}
+    return remove, counts
 
 
 def plan_image(plan, domain, sidewalks, road, out):
@@ -438,7 +594,7 @@ def main(zone):
     os.makedirs(out, exist_ok=True)
     start = time.time()
     collision = load_collision(plan["stage"])
-    floor = Floor(collision)
+    raw_floor = Floor(collision)
     box = plan["box"]
     zone_box = shapely_box(box[0], box[2], box[1], box[3])
     footprint = plan["building"]["footprint"]
@@ -453,16 +609,26 @@ def main(zone):
         sidewalks[k] = sidewalks[k].intersection(walkable_polygon(plan["stage"], box))
     sidewalks = {k: (max(v.geoms, key=lambda g: g.area) if v.geom_type != "Polygon" else v) for k, v in sidewalks.items() if not v.is_empty}
 
+    floor = Surface(raw_floor, domain)
+    print(f"  smoothed ground: collision floor differs by p50 {floor.stats['p50'] * 100:.1f} cm, p95 {floor.stats['p95'] * 100:.1f} cm, "
+          f"at most {floor.stats['max_above'] * 100:.0f} cm above")
     meshes, road = ground_meshes(plan, floor, domain, sidewalks)
     tints = control_texture(plan, road, unary_union(list(sidewalks.values())), out)
-    hero, crops, glass_photos = blue_elephant(plan, out)
+    hero, crops, glass_photos = blue_elephant(plan, out, floor)
+    board = plan.get("sign_post", {}).get("board")
+    if board:
+        b = plan["building"]["front_photo"]
+        photo_crop(b, os.path.join(OUT_DIR, plan["stage"], b["file"]), board["u0"], board["u1"], board["z0"], board["z1"], (0, -1),
+                   os.path.join(out, "sign_board.png"))
+        crops.append("board")
+    meshes.append(props(plan, floor, out))
     for record in glass_photos.values():
         Image.open(os.path.join(OUT_DIR, plan["stage"], record["file"])).save(os.path.join(out, record["file"]))
     meshes.append(hero)
     meshkit.save(meshes, os.path.join(out, "meshes.json"))
 
     scan = Scan(plan["stage"])
-    remove, counts = removal(plan, scan, floor, domain, sidewalks)
+    remove, counts = removal(plan, scan, raw_floor, domain, sidewalks, floor)
     write_ply(os.path.join(out, f"{zone}.ply"), scan.header, scan.data[~remove])
     plan_image(plan, domain, sidewalks, road, out)
     info = {"zone": zone, "box": box, "tints": tints, "signs": crops, "glass": glass_photos, "splats": int(len(remove)), "removed": counts,
@@ -471,7 +637,7 @@ def main(zone):
     with open(os.path.join(out, "zone.json"), "w") as f:
         json.dump(info, f, indent=1)
     print(f"{zone}: road {info['areas']['road']} m2, sidewalks {info['areas']['sidewalks']} m2, triangles {info['triangles']}, "
-          f"splats {len(remove):,} -> {info['kept']:,} (ground {counts['ground']:,}, building {counts['building']:,}), "
+          f"splats {len(remove):,} -> {info['kept']:,} {counts}, "
           f"tints {tints}, {time.time() - start:.0f}s")
 
 

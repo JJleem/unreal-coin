@@ -252,5 +252,47 @@
    ]
   ]
  },
- "_sidewalk_note": "sidewalk polygons reach ~0.5 m under the scanned building walls they meet, so no gap opens at the wall base"
+ "_sidewalk_note": "sidewalk polygons reach ~0.5 m under the scanned building walls they meet, so no gap opens at the wall base",
+ "cones": [
+  [
+   -1.46,
+   -2.65
+  ],
+  [
+   -0.76,
+   -3.2
+  ]
+ ],
+ "sign_post": {
+  "xy": [
+   5.4,
+   9.0
+  ],
+  "height": 2.6,
+  "board": {
+   "w": 0.8,
+   "z0": -1.6,
+   "z1": -0.25,
+   "u0": 1.0,
+   "u1": 2.0
+  }
+ },
+ "grates": [
+  [
+   9.0,
+   4.85,
+   "x"
+  ],
+  [
+   17.0,
+   4.85,
+   "x"
+  ],
+  [
+   13.0,
+   0.2,
+   "x"
+  ]
+ ],
+ "_props": "cones: orange splat clusters on the scan; sign post: dense vertical splats at (5.4, 9.0) up to ~3 m; board crop from the front photo; grates: placed along the curbs (not measured, typical spacing)"
 }

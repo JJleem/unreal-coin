@@ -75,6 +75,51 @@ class Mesh:
             # quads are listed as seen from outside, bottom left first: image uvs go (0,1) (1,1) (1,0) (0,0)
             self.quad(corners[a], corners[b], corners[c], corners[d], n, m, uvs)
 
+    def beam(self, a, b, width, height, material, up=(0.0, 0.0, 1.0)):
+        """A straight bar of rectangular section from point a to point b (rails, stringers, posts)."""
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        d = b - a
+        length = np.linalg.norm(d)
+        if length < 1e-6:
+            return
+        d /= length
+        side = np.cross(d, up)
+        if np.linalg.norm(side) < 1e-6:
+            side = np.cross(d, [1.0, 0.0, 0.0])
+        side /= np.linalg.norm(side)
+        top = np.cross(side, d)
+        hw, hh = width / 2, height / 2
+        corner = lambda p, s, t: p + side * s * hw + top * t * hh
+        ring = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+        for k in range(4):
+            s0, t0 = ring[k]
+            s1, t1 = ring[(k + 1) % 4]
+            n = side * (s0 + s1) / 2 + top * (t0 + t1) / 2
+            p0, p1 = corner(a, s0, t0), corner(a, s1, t1)
+            q0, q1 = corner(b, s0, t0), corner(b, s1, t1)
+            self.quad(p0, p1, q1, q0, n, material,
+                      [[0, 0], [width, 0], [width, length], [0, length]])
+        for end, n in ((a, -d), (b, d)):
+            self.quad(*(corner(end, s, t) for s, t in ring), n, material)
+
+    def cylinder(self, centre, radius, z0, z1, material, segments=16, cap=True):
+        """Vertical cylinder (poles, tanks, cones with radius as (bottom, top))."""
+        r0, r1 = (radius, radius) if np.isscalar(radius) else radius
+        cx, cy = centre
+        angles = np.linspace(0, 2 * np.pi, segments + 1)
+        for k in range(segments):
+            a0, a1 = angles[k], angles[k + 1]
+            pa0 = [cx + r0 * np.cos(a0), cy + r0 * np.sin(a0), z0]
+            pa1 = [cx + r0 * np.cos(a1), cy + r0 * np.sin(a1), z0]
+            pb1 = [cx + r1 * np.cos(a1), cy + r1 * np.sin(a1), z1]
+            pb0 = [cx + r1 * np.cos(a0), cy + r1 * np.sin(a0), z1]
+            mid = (a0 + a1) / 2
+            u0, u1 = a0 * max(r0, r1), a1 * max(r0, r1)
+            self.quad(pa0, pa1, pb1, pb0, [np.cos(mid), np.sin(mid), (r0 - r1) / max(z1 - z0, 1e-6)], material,
+                      [[u0, -z0], [u1, -z0], [u1, -z1], [u0, -z1]])
+            if cap and r1 > 1e-4:
+                self.triangle([cx, cy, z1], pb0, pb1, [0, 0, 1], material)
+
     def merge_grid(self, positions, uvs, triangles, material):
         """Adds an indexed mesh (shared vertices, so the normals come out smooth)."""
         s = self._section(material)

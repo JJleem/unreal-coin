@@ -21,6 +21,7 @@
 #include "UnrealClient.h"
 #include "GameFramework/HUD.h"
 #include "Misc/App.h"
+#include "Camera/CameraActor.h"
 #include "HAL/IConsoleManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Containers/Ticker.h"
@@ -112,6 +113,8 @@ void UDevCapture::BeginPlay()
 			{
 				Views.Add({ FVector(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2])),
 					FRotator(FCString::Atof(*Parts[4]), FCString::Atof(*Parts[3]), 0.0f) });
+				// a 6th field "cam": the location is the camera itself, not the player (same camera on every level)
+				FreeCamera.Add(Parts.Num() > 5 && Parts[5] == TEXT("cam"));
 			}
 		}
 	}
@@ -274,8 +277,22 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 
 	if (Views.IsValidIndex(NextView) && Now >= NextViewTime && Character && PC)
 	{
+		const bool bFree = FreeCamera.IsValidIndex(NextView) && FreeCamera[NextView];
 		const TPair<FVector, FRotator>& View = Views[NextView++];
 		HeldView = View.Value;
+		if (bFree)
+		{
+			if (!ViewCamera)
+			{
+				ViewCamera = GetWorld()->SpawnActor<ACameraActor>();
+			}
+			ViewCamera->SetActorLocationAndRotation(View.Key, View.Value);
+			PC->SetViewTarget(ViewCamera);
+		}
+		else if (ViewCamera)
+		{
+			PC->SetViewTarget(Character);
+		}
 		Character->TeleportTo(View.Key, FRotator(0.0f, View.Value.Yaw, 0.0f), false, true);
 		Character->GetCharacterMovement()->StopMovementImmediately();
 		PC->SetControlRotation(View.Value);

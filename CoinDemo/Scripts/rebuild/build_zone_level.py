@@ -30,8 +30,9 @@ mel = unreal.MaterialEditingLibrary
 library = unreal.EditorAssetLibrary
 
 ROAD_SET = "Road012A"
+MACRO_TEXTURE = [None]   # set in main(): the concrete colour texture, used for large scale variation
 # linear average of each colour texture, so tints can bring a texture to the scan's average colour
-TEXTURE_AVERAGE = {"Road012A": 0.052, "Concrete034": 0.482}
+TEXTURE_AVERAGE = {"Road012A": 0.052, "Concrete034": 0.482, "Tiles141": 0.603}
 # The stage lights are tuned for the character alone over unlit splats and come out about 9x too bright (and warm,
 # from the atmosphere) on lit surfaces whose albedo matches the scan. The zone level scales and white balances them so
 # meshes, splats and the character agree; measured by comparing screenshots of the same view (calibration json)
@@ -49,7 +50,7 @@ PHOTO_EXPOSURE = 0.022   # unlit photo brightness under the stages' manual expos
 
 # surface -> (PBR set, tile size m, tint, metallic, roughness scale, rotate uv)
 SURFACES = {
-    "Sidewalk": ("Concrete034", 2.5, None, 0.0, 1.0, 0),     # tinted to the scan's sidewalk colour
+    "Sidewalk": ("Tiles141", 1.5, None, 0.0, 1.0, 0),        # 30 cm pavers, tinted to the scan's sidewalk colour
     "Curb": ("Concrete034", 1.0, (0.85, 0.85, 0.83), 0.0, 1.0, 0),
     "Plaster": ("PaintedPlaster017", 3.0, (0.75, 0.74, 0.72), 0.0, 1.0, 0),
     "Cladding": ("Metal063", 2.0, (0.55, 0.20, 0.15), 0.2, 0.9, 0),
@@ -57,6 +58,16 @@ SURFACES = {
     "Awning": ("CorrugatedSteel009", 1.0, (0.85, 0.85, 0.82), 0.6, 0.8, 1),
     "Roof": ("RoofingTiles014B", 2.0, (0.55, 0.45, 0.42), 0.0, 1.0, 0),
     "Frame": ("Metal046B", 1.0, (0.30, 0.30, 0.30), 0.9, 0.7, 0),
+    "Trim": ("Metal063", 2.0, (0.42, 0.42, 0.42), 0.3, 0.8, 0),
+    "SignFrame": ("Metal046B", 1.0, (0.12, 0.12, 0.12), 0.8, 0.6, 0),
+    "Steel": ("Metal063", 1.5, (0.55, 0.55, 0.55), 0.6, 0.8, 0),
+    "SteelDark": ("Metal046B", 1.0, (1.3, 1.3, 1.35), 0.3, 0.8, 0),
+    "SteelTread": ("MetalPlates006", 0.8, (1.8, 1.8, 1.8), 0.3, 0.9, 0),
+    "Stainless": ("Metal063", 1.0, (1.4, 1.4, 1.45), 0.9, 0.5, 0),
+    "ConeOrange": ("PaintedPlaster017", 1.0, (1.0, 0.25, 0.04), 0.0, 0.7, 0),
+    "ConeWhite": ("PaintedPlaster017", 1.0, (0.95, 0.95, 0.95), 0.0, 0.6, 0),
+    "ConeBlack": ("Metal046B", 1.0, (0.05, 0.05, 0.05), 0.0, 1.0, 0),
+    "Grate": ("Grate002", 1.0, (0.9, 0.85, 0.8), 0.7, 1.0, 0),
 }
 
 
@@ -155,6 +166,20 @@ def pbr_surface(name, t, tile, tint, metallic, rough, rotate):
     base = node(unreal.MaterialExpressionMultiply, -150, -250)
     link(color, base, "A", "RGB")
     link(tint_node, base, "B")
+    if MACRO_TEXTURE[0] is not None and tile > 0.9 and name not in ("Grate",):
+        # large scale variation (grime, wear, patches) from a low frequency sample of a concrete texture over
+        # 7 m, so the tiling doesn't show; brightness varies by about +-10 %
+        coord = node(unreal.MaterialExpressionTextureCoordinate, -900, -700)
+        big = node(unreal.MaterialExpressionDivide, -750, -700, const_b=7.0)
+        link(coord, big, "A")
+        macro = node(unreal.MaterialExpressionTextureSample, -600, -700, texture=MACRO_TEXTURE[0])
+        link(big, macro, "UVs")
+        vary = node(unreal.MaterialExpressionLinearInterpolate, -400, -650, const_a=0.78, const_b=1.12)
+        link(macro, vary, "Alpha", "R")
+        varied = node(unreal.MaterialExpressionMultiply, -50, -300)
+        link(base, varied, "A")
+        link(vary, varied, "B")
+        base = varied
     mel.connect_material_property(base, "", unreal.MaterialProperty.MP_BASE_COLOR)
     mel.connect_material_property(normal, "RGB", unreal.MaterialProperty.MP_NORMAL)
     r = node(unreal.MaterialExpressionMultiply, -150, 450, const_b=rough)
@@ -404,6 +429,7 @@ def main():
             os.path.join(PBR_DIR, file_name), f"{COMMON}/Textures", f"T_{stem}",
             "normal" if kind == "NormalDX" else "linear" if kind == "Roughness" else "color")
     control = import_texture(os.path.join(ZONE_DIR, "control.png"), FOLDER, "T_Control", "control")
+    MACRO_TEXTURE[0] = textures["Concrete034"]["Color"]
 
     materials = {}
     srgb_to_linear = lambda c: (c / 12.92) if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
@@ -475,6 +501,15 @@ def main():
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     if not unreal.EditorLoadingAndSavingUtils.save_map(world, LEVEL):
         raise RuntimeError(f"Failed to save {LEVEL}")
+    # the trimmed scan alone: shows exactly which parts are splats
+    for actor in actors.get_all_level_actors():
+        if actor.get_actor_label().startswith("Zone_"):
+            actor.set_actor_hidden_in_game(True)
+            actor.static_mesh_component.set_collision_profile_name("NoCollision")
+    if not unreal.EditorLoadingAndSavingUtils.save_map(world, f"{LEVEL}_ScanOnly"):
+        raise RuntimeError(f"Failed to save {LEVEL}_ScanOnly")
+    levels.load_level(LEVEL)
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     # the same without the scan: shows exactly which parts are meshes
     for actor in actors.get_all_level_actors():
         if isinstance(actor, unreal.ScanSplatActor):

@@ -75,6 +75,10 @@ class UDevCapture : public UActorComponent
 	TArray<TPair<FVector, FRotator>> Views;
 	int32 NextView = 0;
 	TOptional<FRotator> HeldView;
+	TArray<bool> FreeCamera;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class ACameraActor> ViewCamera;
 	float NextViewTime = 3.0f;
 
 	/** Frames and real seconds since the last screenshot, for the frame rate log */
