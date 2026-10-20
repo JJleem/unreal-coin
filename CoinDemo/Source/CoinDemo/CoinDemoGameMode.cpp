@@ -1,6 +1,7 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "CoinDemoGameMode.h"
+#include "CoinDemo.h"
 #include "CoinDemoHUD.h"
 #include "CoinPickup.h"
 #include "DevCapture.h"
@@ -194,6 +195,7 @@ void ACoinDemoGameMode::StartGhost()
 	if (Ghost)
 	{
 		Ghost->Play(*Track, StageStartTime);
+		UE_LOG(LogCoinDemo, Log, TEXT("Ghost replaying %d samples (%.1fs)"), Track->Positions.Num(), Track->GetDuration());
 	}
 }
 

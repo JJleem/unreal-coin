@@ -53,6 +53,8 @@ def finish(material):
 
 def hologram():
     material = new_material("M_Hologram", unreal.BlendMode.BLEND_TRANSLUCENT, unreal.MaterialShadingModel.MSM_UNLIT, True)
+    # the ghost is a skinned mannequin
+    material.set_editor_property("used_with_skeletal_mesh", True)
     node, link = builder(material)
 
     color = node(unreal.MaterialExpressionVectorParameter, -600, -500, parameter_name="Color", default_value=unreal.LinearColor(0.15, 0.7, 1.0, 1.0))

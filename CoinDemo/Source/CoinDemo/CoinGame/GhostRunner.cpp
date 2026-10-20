@@ -36,6 +36,9 @@ AGhostRunner::AGhostRunner(const FObjectInitializer& ObjectInitializer)
 		Body->SetMaterial(i, Hologram.Object);
 	}
 
+	// hidden until Play() hands it a track; BeginPlay may run after Play() when spawned during the world's start
+	SetActorHiddenInGame(true);
+
 	// the movement component only reports the replayed velocity to the anim blueprint
 	GetCharacterMovement()->SetComponentTickEnabled(false);
 	GetCharacterMovement()->GravityScale = 0.0f;
@@ -56,7 +59,6 @@ void AGhostRunner::BeginPlay()
 			Material->SetScalarParameterValue(TEXT("Intensity"), 1.2f * HoloStyle::GetIntensityScale(GetWorld()));
 		}
 	}
-	SetActorHiddenInGame(true);
 }
 
 void AGhostRunner::Play(const FGhostTrack& InTrack, float InStartTime)
