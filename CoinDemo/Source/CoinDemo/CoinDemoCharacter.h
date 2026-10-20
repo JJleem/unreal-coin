@@ -10,6 +10,7 @@
 class USpringArmComponent;
 class UCharacterAppearanceComponent;
 class UTraversalComponent;
+class UGameFeelComponent;
 class UInputMappingContext;
 class UCameraComponent;
 class UInputAction;
@@ -37,6 +38,10 @@ class ACoinDemoCharacter : public ACharacter
 	/** Sprint, crouch, slide, roll, ledge climb and double jump */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UTraversalComponent* Traversal;
+
+	/** Camera, sound and shadow feedback for the moves */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UGameFeelComponent* GameFeel;
 
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
@@ -95,6 +100,9 @@ protected:
 	/** Creates the runtime traversal input actions and their key mappings */
 	void CreateTraversalInput();
 
+	/** Thud and camera shake on landing */
+	virtual void Landed(const FHitResult& Hit) override;
+
 	/** Respawns at the player start instead of being destroyed when falling below the stage's Kill Z */
 	virtual void FellOutOfWorld(const class UDamageType& DmgType) override;
 
@@ -151,5 +159,8 @@ public:
 
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	/** Returns GameFeel subobject **/
+	FORCEINLINE UGameFeelComponent* GetGameFeel() const { return GameFeel; }
 };
 

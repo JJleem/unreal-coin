@@ -33,6 +33,15 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Barrier")
 	TObjectPtr<USoundBase> SmashSound;
 
+	/** Drawn as a solid orange hologram all the time, instead of the proximity grid. For walls placed as part of
+	 *  the course, which the player is meant to spot and break, rather than scan noise */
+	UPROPERTY(EditAnywhere, Category="Barrier")
+	bool bAlwaysVisible = false;
+
+	/** Material for always visible walls */
+	UPROPERTY(EditAnywhere, Category="Barrier")
+	TObjectPtr<UMaterialInterface> VisibleMaterial;
+
 	/** Number of debris pieces thrown when smashed */
 	UPROPERTY(EditAnywhere, Category="Barrier")
 	int32 DebrisCount = 14;
@@ -50,6 +59,15 @@ public:
 	/** Sets the blocking boxes, in world space */
 	UFUNCTION(BlueprintCallable, Category="Barrier")
 	void SetBoxes(const TArray<FBox>& InBoxes) { Boxes = InBoxes; }
+
+	/** Shows the barrier as an orange hologram all the time */
+	UFUNCTION(BlueprintCallable, Category="Barrier")
+	void SetAlwaysVisible(bool bVisible) { bAlwaysVisible = bVisible; }
+
+	bool IsAlwaysVisible() const { return bAlwaysVisible; }
+
+	/** Bounds of all the boxes */
+	FBox GetBounds() const;
 
 	/** Breaks the barrier apart, throwing debris along Impulse */
 	UFUNCTION(BlueprintCallable, Category="Barrier")

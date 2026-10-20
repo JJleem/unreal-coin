@@ -5,6 +5,14 @@ Synthesizes the game's sound effects as 16-bit mono WAV files (no external asset
   clear.wav   rising arpeggio when a stage is cleared
   smash.wav   noisy crunch when a barrier breaks
   record.wav  sparkle for a new best time
+  step.wav    soft footstep, pitched randomly at runtime
+  land.wav    heavier thud when landing from a jump
+  whoosh.wav  air rush for rolls and slides
+  launch.wav  springy rising zap for jump pads
+  gem.wav     long shimmering chord for a hidden gem
+  tick.wav    short click for moving through menus
+  select.wav  confirm blip for menus
+  medal.wav   brass-like fanfare hit for a medal
 
 Output: ../SourceAssets/Sounds/*.wav, imported by import_sounds.py. Needs numpy:
   python make_sounds.py
@@ -66,6 +74,67 @@ def record():
     return out
 
 
+def noise_burst(duration, smooth, decay, seed):
+    rng = np.random.default_rng(seed)
+    t = np.arange(int(RATE * duration)) / RATE
+    noise = np.convolve(rng.standard_normal(len(t)), np.ones(smooth) / smooth, mode="same")
+    return t, noise * np.exp(-t * decay) * np.minimum(1.0, t / 0.002)
+
+
+def step():
+    t, scuff = noise_burst(0.12, 18, 45, 3)
+    return scuff + 0.6 * np.sin(2 * np.pi * 110 * t) * np.exp(-t * 60)
+
+
+def land():
+    t, scuff = noise_burst(0.35, 30, 18, 4)
+    thump = np.sin(2 * np.pi * 60 * t * np.exp(-t * 4)) * np.exp(-t * 12)
+    return thump + 0.5 * scuff
+
+
+def whoosh():
+    t, noise = noise_burst(0.5, 12, 0, 5)
+    # swell up and away, brighter in the middle
+    envelope = np.sin(np.pi * t / t[-1]) ** 2
+    return noise * envelope
+
+
+def launch():
+    t = np.arange(int(RATE * 0.45)) / RATE
+    freq = 220 * np.exp(t * 4.5)
+    phase = 2 * np.pi * np.cumsum(freq) / RATE
+    zap = (np.sin(phase) + 0.3 * np.sin(2 * phase)) * np.exp(-t * 5) * np.minimum(1.0, t / 0.005)
+    _, thump = noise_burst(0.45, 40, 25, 6)
+    return zap + 0.4 * thump
+
+
+def gem():
+    out = np.zeros(int(RATE * 2.2))
+    for i, freq in enumerate((659.25, 830.61, 987.77, 1318.51, 1661.22, 1975.53)):  # E major, rising
+        place(out, 0.7 * tone(freq, 1.8 - i * 0.15, 2.5 + i * 0.4), i * 0.06)
+    return out
+
+
+def tick():
+    return tone(1800, 0.04, 120, ((1, 1.0), (2, 0.2)))
+
+
+def select():
+    out = np.zeros(int(RATE * 0.25))
+    place(out, tone(880, 0.1, 40), 0.0)
+    place(out, tone(1320, 0.2, 25), 0.05)
+    return out
+
+
+def medal():
+    out = np.zeros(int(RATE * 1.4))
+    brass = ((1, 1.0), (2, 0.7), (3, 0.5), (4, 0.3), (5, 0.2))
+    for i, freq in enumerate((392.0, 523.25, 659.25)):  # G4 C5 E5, together
+        place(out, tone(freq, 1.3, 3.5, brass), 0.0)
+    place(out, 0.6 * tone(1046.5, 1.0, 5), 0.05)
+    return out
+
+
 def write(name, samples):
     samples = samples / max(1e-9, np.abs(samples).max()) * 0.8
     with wave.open(os.path.join(OUT_DIR, f"{name}.wav"), "wb") as f:
@@ -78,7 +147,9 @@ def write(name, samples):
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    for name, make in (("coin", coin), ("clear", clear), ("smash", smash), ("record", record)):
+    for name, make in (("coin", coin), ("clear", clear), ("smash", smash), ("record", record), ("step", step),
+                       ("land", land), ("whoosh", whoosh), ("launch", launch), ("gem", gem), ("tick", tick),
+                       ("select", select), ("medal", medal)):
         write(name, make())
 
 

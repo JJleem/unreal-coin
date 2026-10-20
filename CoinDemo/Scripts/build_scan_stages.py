@@ -16,8 +16,12 @@ Run headless with the editor closed:
 
 import json
 import os
+import sys
 
 import unreal
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import course_actors  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANS_DIR = os.path.normpath(os.path.join(HERE, "..", "..", "Scans"))
@@ -179,15 +183,6 @@ def spawn(actors, cls, location, rotation=unreal.Rotator(0, 0, 0), label=None):
     return actor
 
 
-def make_box(b):
-    """[minx, miny, minz, maxx, maxy, maxz] -> unreal.Box"""
-    box = unreal.Box()
-    box.set_editor_property("min", vec(b[:3]))
-    box.set_editor_property("max", vec(b[3:]))
-    box.set_editor_property("is_valid", True)
-    return box
-
-
 def spawn_collision(actors, mesh, label, material=None):
     actor = spawn(actors, unreal.StaticMeshActor, unreal.Vector(0, 0, 0), label=label)
     component = actor.static_mesh_component
@@ -346,7 +341,7 @@ def build_stage(folder):
     # small free-standing obstacles can be smashed by running, rolling or sliding into them
     for i, group in enumerate(data.get("breakables", []), start=1):
         actor = spawn(actors, unreal.BreakableBarrier, vec(group[0][:3]), label=f"Breakable_{i:02d}")
-        actor.set_boxes([make_box(b) for b in group])
+        actor.set_boxes([course_actors.make_box(b) for b in group])
 
     # lighting for the character only (the splats carry their own baked color), kept soft so the character
     # sits in the photographed scene instead of glowing white
@@ -378,6 +373,9 @@ def build_stage(folder):
 
     for i, coin in enumerate(data["coins"], start=1):
         spawn(actors, unreal.CoinPickup, vec(coin), label=f"Coin_{i:02d}")
+
+    # the holographic course: platforms, jump pad, breakable cage, extra coins and the hidden gem
+    course_actors.place_course(actors, data.get("course", {}))
 
     # anything that still slips below the ground respawns at the start (see ACoinDemoCharacter::FellOutOfWorld)
     lowest = min(v[2] for v in data["ground"]["vertices"])

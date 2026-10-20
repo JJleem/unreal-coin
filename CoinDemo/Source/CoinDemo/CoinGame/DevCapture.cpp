@@ -7,6 +7,7 @@
 #include "CoinPickup.h"
 #include "BreakableBarrier.h"
 #include "CoinDemoGameMode.h"
+#include "GameMenuComponent.h"
 #include "EngineUtils.h"
 #include "Components/LightComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -18,11 +19,13 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Paths.h"
 #include "UnrealClient.h"
+#include "Containers/Ticker.h"
 
 UDevCapture::UDevCapture()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
+	PrimaryComponentTick.bTickEvenWhenPaused = true;
 }
 
 void UDevCapture::BeginPlay()
@@ -128,6 +131,18 @@ void UDevCapture::RunBotStep()
 	Action.Split(TEXT(":"), &Action, &Seconds);
 	BotStepTime = Seconds.IsEmpty() ? 0.5f : FCString::Atof(*Seconds);
 
+	// menu keys work without a character, e.g. on the title screen
+	if (Action.StartsWith(TEXT("Menu")))
+	{
+		const APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
+		if (UGameMenuComponent* Menu = PC ? PC->FindComponentByClass<UGameMenuComponent>() : nullptr)
+		{
+			UE_LOG(LogCoinDemo, Log, TEXT("Bot: %s"), *Action);
+			Menu->RunCommand(Action.RightChop(4));
+		}
+		return;
+	}
+
 	ACoinDemoCharacter* Character = Cast<ACoinDemoCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0));
 	if (!Character)
 	{
@@ -182,7 +197,8 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	const float Now = GetWorld()->GetTimeSeconds();
+	// real time, so screenshots of the pause menu still happen
+	const float Now = GetWorld()->GetRealTimeSeconds();
 	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
 	ACoinDemoCharacter* Character = Cast<ACoinDemoCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0));
 
@@ -195,8 +211,16 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 		StartTransform.Reset();
 	}
 
-	// scripted input
-	if (BotSteps.Num() > 0 && Character)
+	// scripted input; menu steps run before there is a character
+	if (BotSteps.Num() > 0 && !Character)
+	{
+		BotStepTime -= DeltaTime;
+		if (BotStepTime <= 0.0f)
+		{
+			RunBotStep();
+		}
+	}
+	else if (BotSteps.Num() > 0 && Character)
 	{
 		BotStepTime -= DeltaTime;
 		if (BotStepTime <= 0.0f)
@@ -270,8 +294,8 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 
 		if (ShotTimes.Num() == 0 && bQuitAfterShots)
 		{
-			FTimerHandle Quit;
-			GetWorld()->GetTimerManager().SetTimer(Quit, [] { FPlatformMisc::RequestExit(false, TEXT("DevCapture")); }, 1.5f, false);
+			// a core ticker, so it also fires while the game is paused
+			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([](float) { FPlatformMisc::RequestExit(false, TEXT("DevCapture")); return false; }), 1.5f);
 		}
 	}
 }

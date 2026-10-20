@@ -343,6 +343,21 @@ void UTraversalComponent::OnActionMontageEnded(UAnimMontage* Montage, bool bInte
 	Action = ETraversalAction::None;
 }
 
+void UTraversalComponent::OnLaunched()
+{
+	UCharacterMovementComponent* Movement = GetMovement();
+	if (!Movement)
+	{
+		return;
+	}
+	if (SavedFallingBraking < 0.0f)
+	{
+		SavedFallingBraking = Movement->BrakingDecelerationFalling;
+	}
+	Movement->BrakingDecelerationFalling = 0.0f;
+	bLeftGround = false;
+}
+
 void UTraversalComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -352,6 +367,17 @@ void UTraversalComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	if (!Character || !Movement)
 	{
 		return;
+	}
+
+	// a launch ends when the character is back on the ground
+	if (SavedFallingBraking >= 0.0f)
+	{
+		bLeftGround |= Movement->IsFalling();
+		if (bLeftGround && Movement->IsMovingOnGround())
+		{
+			Movement->BrakingDecelerationFalling = SavedFallingBraking;
+			SavedFallingBraking = -1.0f;
+		}
 	}
 
 	if (Action == ETraversalAction::Slide)

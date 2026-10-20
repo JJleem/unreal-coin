@@ -19,6 +19,7 @@ public class CoinDemo : ModuleRules
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
+			"SlateCore",
 			"NanoGS"
 		});
 

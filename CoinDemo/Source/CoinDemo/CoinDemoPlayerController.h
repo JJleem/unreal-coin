@@ -8,6 +8,7 @@
 
 class UInputMappingContext;
 class UUserWidget;
+class UGameMenuComponent;
 
 /**
  *  Basic PlayerController class for a third person game
@@ -17,7 +18,18 @@ UCLASS(abstract)
 class ACoinDemoPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-	
+
+	/** Title, stage select, settings and pause menus */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UGameMenuComponent* GameMenu;
+
+public:
+
+	ACoinDemoPlayerController();
+
+	/** Returns the menus */
+	UGameMenuComponent* GetGameMenu() const { return GameMenu; }
+
 protected:
 
 	/** Input Mapping Contexts */

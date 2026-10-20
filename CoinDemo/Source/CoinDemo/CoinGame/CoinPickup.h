@@ -56,6 +56,13 @@ protected:
 	/** Seconds since collection, or a negative value while the coin is waiting */
 	float CollectedTime = -1.0f;
 
+	/** The coin flies to a player who comes this close */
+	UPROPERTY(EditAnywhere, Category="Coin", meta = (Units = "cm"))
+	float MagnetRadius = 320.0f;
+
+	/** Speed while flying to the player, 0 until the magnet catches it */
+	float MagnetSpeed = 0.0f;
+
 public:
 
 	/** Constructor */

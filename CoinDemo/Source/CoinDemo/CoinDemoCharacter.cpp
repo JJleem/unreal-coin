@@ -14,6 +14,8 @@
 #include "CoinDemo.h"
 #include "CharacterAppearanceComponent.h"
 #include "TraversalComponent.h"
+#include "GameFeelComponent.h"
+#include "CoinDemoSaveGame.h"
 #include "BreakableBarrier.h"
 #include "CoinDemoGameMode.h"
 #include "InputAction.h"
@@ -61,6 +63,7 @@ ACoinDemoCharacter::ACoinDemoCharacter()
 
 	Appearance = CreateDefaultSubobject<UCharacterAppearanceComponent>(TEXT("Appearance"));
 	Traversal = CreateDefaultSubobject<UTraversalComponent>(TEXT("Traversal"));
+	GameFeel = CreateDefaultSubobject<UGameFeelComponent>(TEXT("GameFeel"));
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -138,9 +141,10 @@ void ACoinDemoCharacter::DoLook(float Yaw, float Pitch)
 {
 	if (GetController() != nullptr)
 	{
-		// add yaw and pitch input to controller
-		AddControllerYawInput(Yaw);
-		AddControllerPitchInput(Pitch);
+		// add yaw and pitch input to controller, scaled by the player's settings
+		const UCoinDemoSaveGame* Settings = UCoinDemoSaveGame::LoadOrCreate();
+		AddControllerYawInput(Yaw * Settings->MouseSensitivity);
+		AddControllerPitchInput(Pitch * Settings->MouseSensitivity * (Settings->bInvertY ? -1.0f : 1.0f));
 	}
 }
 
@@ -184,6 +188,14 @@ void ACoinDemoCharacter::FellOutOfWorld(const UDamageType& DmgType)
 	Super::FellOutOfWorld(DmgType);
 }
 
+void ACoinDemoCharacter::Landed(const FHitResult& Hit)
+{
+	// the velocity still holds the fall speed when this is called
+	const float ImpactSpeed = -GetCharacterMovement()->Velocity.Z;
+	Super::Landed(Hit);
+	GameFeel->OnLanded(ImpactSpeed);
+}
+
 void ACoinDemoCharacter::MoveBlockedBy(const FHitResult& Impact)
 {
 	Super::MoveBlockedBy(Impact);
@@ -194,6 +206,8 @@ void ACoinDemoCharacter::MoveBlockedBy(const FHitResult& Impact)
 	if (Barrier && (GetVelocity().Size2D() > 600.0f || Action == ETraversalAction::Roll || Action == ETraversalAction::Slide))
 	{
 		Barrier->Smash(GetActorForwardVector() * 800.0f);
+		GameFeel->HitStop();
+		GameFeel->AddShake(0.9f);
 	}
 }
 

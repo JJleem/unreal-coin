@@ -2,6 +2,7 @@
 
 
 #include "BreakableBarrier.h"
+#include "HoloStyle.h"
 #include "CoinDemo.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -20,6 +21,8 @@ ABreakableBarrier::ABreakableBarrier()
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Material(TEXT("/Game/Stages/Common/M_Barrier.M_Barrier"));
 	static ConstructorHelpers::FObjectFinder<USoundBase> Sound(TEXT("/Game/Audio/SFX_Smash.SFX_Smash"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Hologram(TEXT("/Game/CoinGame/Materials/M_Hologram.M_Hologram"));
+	VisibleMaterial = Hologram.Object;
 	CubeMesh = Cube.Object;
 	BarrierMaterial = Material.Object;
 	SmashSound = Sound.Object;
@@ -34,14 +37,34 @@ void ABreakableBarrier::BeginPlay()
 	{
 		UStaticMeshComponent* Part = NewObject<UStaticMeshComponent>(this);
 		Part->SetStaticMesh(CubeMesh);
-		Part->SetMaterial(0, BarrierMaterial);
+		Part->SetMaterial(0, bAlwaysVisible ? VisibleMaterial : BarrierMaterial);
 		Part->SetCollisionProfileName(TEXT("BlockAll"));
 		Part->SetCastShadow(false);
 		Part->SetupAttachment(RootComponent);
 		Part->SetWorldLocationAndRotation(Box.GetCenter(), FRotator::ZeroRotator);
 		Part->SetWorldScale3D(Box.GetSize() / 100.0f);
 		Part->RegisterComponent();
+
+		if (bAlwaysVisible)
+		{
+			if (UMaterialInstanceDynamic* Material = Part->CreateDynamicMaterialInstance(0))
+			{
+				Material->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.0f, 0.45f, 0.1f));
+				Material->SetScalarParameterValue(TEXT("Fill"), 0.22f);
+				Material->SetScalarParameterValue(TEXT("Intensity"), 2.0f * HoloStyle::GetIntensityScale(GetWorld()));
+			}
+		}
 	}
+}
+
+FBox ABreakableBarrier::GetBounds() const
+{
+	FBox Bounds(ForceInit);
+	for (const FBox& Box : Boxes)
+	{
+		Bounds += Box;
+	}
+	return Bounds;
 }
 
 void ABreakableBarrier::Smash(FVector Impulse)
@@ -52,11 +75,7 @@ void ABreakableBarrier::Smash(FVector Impulse)
 	}
 	bSmashed = true;
 
-	FBox Bounds(ForceInit);
-	for (const FBox& Box : Boxes)
-	{
-		Bounds += Box;
-	}
+	const FBox Bounds = GetBounds();
 
 	if (SmashSound)
 	{
@@ -86,7 +105,7 @@ void ABreakableBarrier::Smash(FVector Impulse)
 		Mesh->SetWorldScale3D(FVector(FMath::RandRange(0.08f, 0.22f)));
 		if (UMaterialInstanceDynamic* Material = Mesh->CreateDynamicMaterialInstance(0, CubeMesh->GetMaterial(0)))
 		{
-			Material->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.55f, 0.85f, 1.0f));
+			Material->SetVectorParameterValue(TEXT("Color"), bAlwaysVisible ? FLinearColor(1.0f, 0.5f, 0.15f) : FLinearColor(0.55f, 0.85f, 1.0f));
 		}
 		Mesh->SetCollisionProfileName(TEXT("PhysicsActor"));
 		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);

@@ -6,6 +6,9 @@ Prepares gameplay geometry for the ANNX scans, in Unreal space (centimetres, Z u
             above the ground is high (buildings, walls, trees) or when there is no ground under it (edge of the scan).
             Small isolated blobs (people, signs, noise) are dropped, and cells around coins and the start stay open.
   * coins and start: placed on the smoothed ground
+  * course:  a holographic obstacle course laid over the scan in open spaces: a spiral stair tower with coins and
+             the hidden gem on top, a jump pad up to a floating platform with a coin, and a breakable cage around
+             one of the scan's coins. See plan_course().
 
 Output per stage, read by build_scan_stages.py:
   generated/<Name>_collision.json
@@ -43,6 +46,23 @@ BREAKABLE_MAX_AREA = 6.0    # free-standing blobs smaller than this (people, sig
 BREAKABLE_TOP = 2.4         # height of a breakable barrier above the local ground, metres
 MAX_STEP_UP = 1.2           # tallest rise between neighbouring cells the player gets up without a ledge, metres
 COIN_HEIGHT = 1.0           # coin centre above the ground, metres
+
+# holographic course, metres
+TOWER_STEPS = 5             # spiral of columns, each STEP_RISE taller than the last: a ledge climb apart
+STEP_RISE = 1.0
+STEP_SIZE = 1.8
+TOWER_RADIUS = 1.8          # column centres sit on this circle, turning STEP_TURN degrees per step
+STEP_TURN = 72.0
+TOWER_CLEAR = 3.4           # open ground needed around the tower centre
+GEM_RISE = 1.8              # the gem waits on a central pillar this much taller than the top column
+GEM_PILLAR = 1.4
+COLUMN_FOOT = 0.5           # columns reach this far below the ground, so uneven scan floors don't open gaps
+PAD_CLEAR = 2.6             # open ground needed around a jump pad and below its platform
+PAD_REACH = 5.0             # horizontal distance from a jump pad to its floating platform
+PAD_HEIGHT = 6.0            # height of the floating platform above the pad
+CAGE_HALF = 1.7             # breakable cage around a coin: half width, wall thickness and height
+CAGE_WALL = 0.3
+CAGE_HEIGHT = 3.0
 
 
 def read_ply(path):
@@ -164,6 +184,78 @@ def open_facing(open_cells, position, lo, directions=16, reach=8.0):
     return float(np.degrees(angles[int(np.argmax(scores))]))
 
 
+def plan_course(reach, cell_z, lo, start_xy, coins):
+    """Places the holographic course on reachable open ground. Returns platforms [cx, cy, top z, sx, sy, sz, yaw],
+    jump pads [x, y, z, target x, y, z], breakable walls (each a list of boxes), extra coins and the gem, in metres.
+    Picks spots by how much open ground surrounds them, away from the start and from each other."""
+    clear = ndimage.distance_transform_edt(reach) * CELL
+    nx, ny = reach.shape
+    gx, gy = np.meshgrid(lo[0] + (np.arange(nx) + 0.5) * CELL, lo[1] + (np.arange(ny) + 0.5) * CELL, indexing="ij")
+    taken = [np.asarray(start_xy)]
+
+    def pick(min_clear, min_gap):
+        """The most open reachable cell at least min_gap from everything placed so far."""
+        score = np.where(clear >= min_clear, clear, -1.0)
+        for xy in taken:
+            score[(gx - xy[0]) ** 2 + (gy - xy[1]) ** 2 < min_gap ** 2] = -1.0
+        if score.max() < 0:
+            return None
+        i, j = np.unravel_index(np.argmax(score), score.shape)
+        taken.append(np.array([gx[i, j], gy[i, j]]))
+        return i, j
+
+    course = {"platforms": [], "jumpPads": [], "smashWalls": [], "coins": [], "gem": None}
+
+    # spiral tower: solid columns standing on the ground, each one a ledge climb up from the last (thin floating
+    # steps can't be climbed, the climb needs a wall to grab), coins halfway up and on top, the gem on a central
+    # pillar above the top column
+    spot = pick(TOWER_CLEAR, 8.0)
+    if spot:
+        cx, cy, ground = gx[spot], gy[spot], cell_z[spot]
+        foot = ground - COLUMN_FOOT
+        for k in range(TOWER_STEPS):
+            angle = k * STEP_TURN
+            x, y = cx + TOWER_RADIUS * np.cos(np.radians(angle)), cy + TOWER_RADIUS * np.sin(np.radians(angle))
+            top = ground + (k + 1) * STEP_RISE
+            course["platforms"].append([x, y, top, STEP_SIZE, STEP_SIZE, top - foot, angle])
+            if k in (2, TOWER_STEPS - 1):
+                course["coins"].append([x, y, top + COIN_HEIGHT])
+        top = ground + TOWER_STEPS * STEP_RISE + GEM_RISE
+        course["platforms"].append([cx, cy, top, GEM_PILLAR, GEM_PILLAR, top - foot, 0.0])
+        course["gem"] = [cx, cy, top + COIN_HEIGHT]
+
+    # jump pad: launches onto a floating platform in the most open direction
+    spot = pick(PAD_CLEAR, 12.0)
+    if spot:
+        px, py, ground = gx[spot], gy[spot], cell_z[spot]
+        best = None
+        for angle in np.radians(np.arange(0, 360, 30)):
+            tx, ty = px + PAD_REACH * np.cos(angle), py + PAD_REACH * np.sin(angle)
+            i, j = int((tx - lo[0]) // CELL), int((ty - lo[1]) // CELL)
+            if 0 <= i < nx and 0 <= j < ny and (best is None or clear[i, j] > best[0]):
+                best = (clear[i, j], tx, ty)
+        if best and best[0] >= PAD_CLEAR * 0.6:
+            _, tx, ty = best
+            top = ground + PAD_HEIGHT
+            course["jumpPads"].append([px, py, ground, tx, ty, top])
+            course["platforms"].append([tx, ty, top, 3.0, 3.0, 0.3, 0.0])
+            course["coins"].append([tx, ty, top + COIN_HEIGHT])
+
+    # breakable cage around the scan coin with the most room
+    room = [(clear[int((x - lo[0]) // CELL), int((y - lo[1]) // CELL)], c) for c, (x, y) in enumerate(coins[:, :2])]
+    room = [r for r in room if r[0] >= CAGE_HALF + 1.0]
+    if room:
+        _, c = max(room)
+        x, y = coins[c, :2]
+        z0 = coins[c, 2] - COIN_HEIGHT
+        h, t = CAGE_HALF, CAGE_WALL
+        for box in ([x - h, y - h, x + h, y - h + t], [x - h, y + h - t, x + h, y + h],
+                    [x - h, y - h + t, x - h + t, y + h - t], [x + h - t, y - h + t, x + h, y + h - t]):
+            course["smashWalls"].append([[box[0], box[1], z0 - 0.2, box[2], box[3], z0 + CAGE_HEIGHT]])
+
+    return course
+
+
 def floor_mesh(has_ground, cell_z, lo):
     """Walkable floor without holes: a height field over the ground cells (grown under the walls' feet),
     with corner heights averaged from the neighbouring cells. Returns (vertices in metres, triangle indices)."""
@@ -280,6 +372,8 @@ def build(folder):
             moved += 1
 
     floor_vertices, floor_indices = floor_mesh(has_ground, cell_z, lo)
+    coins_m = np.column_stack([coins[:, :2], keep_z[:-1] + COIN_HEIGHT])
+    course = plan_course(reach, cell_z, lo, start[0, :2], coins_m)
     start_yaw = open_facing(open_cells, start[0, :2], lo)
 
     cm = lambda a: (np.asarray(a) * 100.0).round(1).tolist()
@@ -291,7 +385,14 @@ def build(folder):
         "breakables": [cm(group) for group in breakables],
         "start": cm([start[0, 0], start[0, 1], keep_z[-1]]),
         "startYaw": start_yaw,
-        "coins": cm(np.column_stack([coins[:, :2], keep_z[:-1] + COIN_HEIGHT]))
+        "coins": cm(coins_m),
+        "course": {
+            "platforms": [cm(p[:6]) + [round(float(p[6]), 1)] for p in course["platforms"]],
+            "jumpPads": [cm(p) for p in course["jumpPads"]],
+            "smashWalls": [cm(group) for group in course["smashWalls"]],
+            "coins": [cm(c) for c in course["coins"]],
+            "gem": cm(course["gem"]) if course["gem"] else None,
+        }
     }
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, f"{name}_collision.json"), "w") as f:
@@ -311,11 +412,21 @@ def build(folder):
         img[max(i - 1, 0):i + 2, max(j - 1, 0):j + 2] = color
     Image.fromarray(img[::-1]).resize((ny * 4, nx * 4), Image.NEAREST).save(os.path.join(OUT_DIR, f"{name}_collision.png"))
 
+    for p in course["platforms"]:
+        i, j = int((p[0] - lo[0]) // CELL), int((p[1] - lo[1]) // CELL)
+        img[max(i - 1, 0):i + 2, max(j - 1, 0):j + 2] = (60, 200, 255)
+    for p in course["jumpPads"]:
+        i, j = int((p[0] - lo[0]) // CELL), int((p[1] - lo[1]) // CELL)
+        img[max(i - 1, 0):i + 2, max(j - 1, 0):j + 2] = (60, 255, 120)
+    Image.fromarray(img[::-1]).resize((ny * 4, nx * 4), Image.NEAREST).save(os.path.join(OUT_DIR, f"{name}_collision.png"))
+
     walkable = has_ground & ~blocked
     bump_raw = np.percentile(np.abs(raw_ground[:, 2] - np.median(raw_ground[:, 2])), 90)
     bump = np.percentile(np.abs(ground[:, 2] - np.median(ground[:, 2])), 90)
     print(f"{name:13s} scale x{SCALES.get(name, 1.0):.2f}  walkable {walkable.sum() * CELL * CELL:5.0f} m2  "
           f"wall boxes {len(boxes):4d}  breakables {len(breakables):3d}  coins moved {moved}  ground spread (p90) {bump_raw:.2f} m -> {bump:.2f} m")
+    print(f"{'':13s} course: {len(course['platforms'])} platforms, {len(course['jumpPads'])} jump pads, "
+          f"{len(course['smashWalls'])} cage walls, {len(course['coins'])} extra coins, gem {'yes' if course['gem'] else 'no'}")
 
 
 def main():

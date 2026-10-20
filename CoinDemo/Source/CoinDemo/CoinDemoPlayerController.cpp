@@ -8,6 +8,13 @@
 #include "Blueprint/UserWidget.h"
 #include "CoinDemo.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "EnhancedInputComponent.h"
+#include "GameMenuComponent.h"
+
+ACoinDemoPlayerController::ACoinDemoPlayerController()
+{
+	GameMenu = CreateDefaultSubobject<UGameMenuComponent>(TEXT("GameMenu"));
+}
 
 void ACoinDemoPlayerController::BeginPlay()
 {
@@ -40,6 +47,8 @@ void ACoinDemoPlayerController::SetupInputComponent()
 	// only add IMCs for local player controllers
 	if (IsLocalPlayerController())
 	{
+		GameMenu->BindInput(Cast<UEnhancedInputComponent>(InputComponent));
+
 		// Add Input Mapping Contexts
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 		{

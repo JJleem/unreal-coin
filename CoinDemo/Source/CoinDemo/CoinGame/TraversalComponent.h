@@ -118,6 +118,10 @@ protected:
 
 	float WalkSpeed = 500.0f;
 
+	/** Air braking saved while a launch arc is in flight, negative when not launched */
+	float SavedFallingBraking = -1.0f;
+	bool bLeftGround = false;
+
 public:
 
 	/** Constructor */
@@ -136,6 +140,10 @@ public:
 
 	/** Climbs the ledge in front of the character, if there is one. Returns true when a climb started */
 	bool TryMantle();
+
+	/** Called when something throws the character in an arc (a jump pad): air braking is off until it lands, so
+	 *  the arc carries the character all the way */
+	void OnLaunched();
 
 	/** True while a one-shot move owns the character */
 	bool IsBusy() const { return Action != ETraversalAction::None; }

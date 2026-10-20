@@ -42,7 +42,7 @@ ACoinPickup::ACoinPickup()
 		Mesh->SetStaticMesh(CylinderMesh.Object);
 	}
 
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ShapeMaterial(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ShapeMaterial(TEXT("/Game/CoinGame/Materials/M_Coin.M_Coin"));
 	if (ShapeMaterial.Succeeded())
 	{
 		Mesh->SetMaterial(0, ShapeMaterial.Object);
@@ -88,6 +88,17 @@ void ACoinPickup::Tick(float DeltaTime)
 	// spin around the vertical axis, scaled by frame time so the speed is frame rate independent
 	AddActorLocalRotation(FRotator(0.0f, RotationSpeed * DeltaTime, 0.0f));
 
+	// close enough: fly into the player, speeding up so it can't be outrun
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
+	if (Player && (MagnetSpeed > 0.0f || FVector::DistSquared(Player->GetActorLocation(), GetActorLocation()) < FMath::Square(MagnetRadius)))
+	{
+		MagnetSpeed = FMath::Max(MagnetSpeed, 400.0f) + 3000.0f * DeltaTime;
+		const FVector Target = Player->GetActorLocation() + FVector(0.0f, 0.0f, 20.0f);
+		SetActorLocation(FMath::VInterpConstantTo(GetActorLocation(), Target, DeltaTime, MagnetSpeed));
+		Mesh->SetRelativeLocation(FMath::VInterpTo(Mesh->GetRelativeLocation(), FVector::ZeroVector, DeltaTime, 10.0f));
+		return;
+	}
+
 	// float up and down; the phase comes from the position so neighbouring coins don't move in lockstep
 	const float Phase = GetActorLocation().X * 0.01f + GetActorLocation().Y * 0.013f;
 	const float Time = GetWorld()->GetTimeSeconds();
@@ -114,9 +125,12 @@ void ACoinPickup::BeginOverlap(AActor* OverlappedActor, AActor* OtherActor)
 		GM->CoinCollected();
 	}
 
+	// the chime climbs with the combo
 	if (CollectSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, CollectSound, GetActorLocation());
+		const ACoinDemoGameMode* GM = GetWorld()->GetAuthGameMode<ACoinDemoGameMode>();
+		const int32 Combo = GM ? GM->GetCombo() : 1;
+		UGameplayStatics::PlaySoundAtLocation(this, CollectSound, GetActorLocation(), 1.0f, FMath::Min(1.0f + 0.08f * (Combo - 1), 1.8f));
 	}
 
 	BP_OnCollected();

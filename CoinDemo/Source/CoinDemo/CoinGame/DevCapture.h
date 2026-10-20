@@ -13,7 +13,8 @@
  *    -ShotYaw=180         rotate the camera around the player before the first shot (180 = look at the face)
  *    -ShotPitch=-10       camera pitch for the shots
  *    -Bot=fwd:2,jump,...  play a scripted input sequence on the player: fwd/back/left/right/coin/smash/collectall/wait/jump/land
- *                         or any parameterless character function (DoRoll, DoCrouch...), each optionally ":seconds"
+ *                         or any parameterless character function (DoRoll, DoCrouch...), or a menu key
+ *                         (MenuUp, MenuDown, MenuLeft, MenuRight, MenuConfirm, MenuBack), each optionally ":seconds"
  *    -StartAt=x,y,z,yaw   put the player here when play starts
  *    -LightScale=0.5      multiply the intensity of every light in the level
  *    -ExposureBias=1      switch post process volumes to manual exposure with this bias
