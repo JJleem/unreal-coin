@@ -1,0 +1,99 @@
+diff -ru SourceAssets/OpenSplat4D_backup/Shaders/Private/GaussianSplatComposite.usf Plugins/OpenSplat4D/Shaders/Private/GaussianSplatComposite.usf
+--- SourceAssets/OpenSplat4D_backup/Shaders/Private/GaussianSplatComposite.usf	2026-10-20 15:04:28.522055300 +0900
++++ Plugins/OpenSplat4D/Shaders/Private/GaussianSplatComposite.usf	2026-10-20 15:05:39.355162100 +0900
+@@ -14,6 +14,21 @@
+ 
+ Texture2D IntermediateTexture;
+ SamplerState IntermediateSampler;
++// [CoinDemo] tone correction LUT, see GaussianSplatShaders.h
++float4 ToneLUT[16];
++float ToneCorrection;
++
++float3 ApplyToneLUT(float3 c)
++{
++	float3 t = saturate(c) * 15.0;
++	int3 i0 = min((int3)floor(t), 14);
++	float3 f = t - i0;
++	float3 r;
++	r.x = lerp(ToneLUT[i0.x].x, ToneLUT[i0.x + 1].x, f.x);
++	r.y = lerp(ToneLUT[i0.y].y, ToneLUT[i0.y + 1].y, f.y);
++	r.z = lerp(ToneLUT[i0.z].z, ToneLUT[i0.z + 1].z, f.z);
++	return r;
++}
+ 
+ // Attempt to invert UE's ACES filmic tone curve so that display-ready gaussian
+ // splat colors survive tone mapping unchanged.  Uses the Narkowicz ACES fit
+@@ -67,6 +82,10 @@
+ 
+ 	// Un-premultiply to recover the actual composited sRGB color
+ 	float3 srgbColor = srgbAccum.rgb / srgbAccum.a;
++	if (ToneCorrection > 0.5)
++	{
++		srgbColor = ApplyToneLUT(srgbColor);
++	}
+ 
+ 	// Convert sRGB to linear for UE's SceneColor buffer
+ 	float3 linearColor = pow(max(srgbColor, 0.0), 2.2);
+diff -ru SourceAssets/OpenSplat4D_backup/Source/NanoGS/Private/NanoGSGaussianSplatRenderer.cpp Plugins/OpenSplat4D/Source/NanoGS/Private/NanoGSGaussianSplatRenderer.cpp
+--- SourceAssets/OpenSplat4D_backup/Source/NanoGS/Private/NanoGSGaussianSplatRenderer.cpp	2026-10-20 15:04:28.705515500 +0900
++++ Plugins/OpenSplat4D/Source/NanoGS/Private/NanoGSGaussianSplatRenderer.cpp	2026-10-20 15:06:03.673703700 +0900
+@@ -29,6 +29,14 @@
+ extern TAutoConsoleVariable<int32> CVarShowClusterBounds;
+ extern TAutoConsoleVariable<int32> CVarDebugForceLODLevel;
+ 
++// [CoinDemo] see the composite pass
++static TAutoConsoleVariable<int32> CVarToneCorrection(
++	TEXT("gs.ToneCorrection"),
++	0,
++	TEXT("[CoinDemo] Correct the splats' tone so they match the reference 3DGS rasterizer after Unreal\'s tonemapper.\n")
++	TEXT(" 0: off (plugin default), 1: on"),
++	ECVF_RenderThreadSafe);
++
+ // ----------------------------------------------------------------------------
+ // Named constants replacing magic numbers used across the renderer.
+ // Keep these in one place so they can be tuned without grepping for literals.
+@@ -2111,6 +2119,31 @@
+ 	FGaussianSplatCompositePS::FParameters PSParameters;
+ 	PSParameters.IntermediateTexture = IntermediateTexture;
+ 	PSParameters.IntermediateSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
++	// [CoinDemo] tone correction: measured so splats leave the tonemapper with the colours of the reference
++	// 3DGS rasterizer (the training photos); see CoinDemo/Scripts/gsquality/README.md
++	static const FVector4f CoinDemoToneLUT[16] = {
++		FVector4f(0.0000f, 0.0000f, 0.0000f, 0.0f),
++		FVector4f(0.1078f, 0.1049f, 0.1045f, 0.0f),
++		FVector4f(0.1907f, 0.1846f, 0.1861f, 0.0f),
++		FVector4f(0.2663f, 0.2627f, 0.2662f, 0.0f),
++		FVector4f(0.3516f, 0.3510f, 0.3504f, 0.0f),
++		FVector4f(0.4382f, 0.4330f, 0.4248f, 0.0f),
++		FVector4f(0.5161f, 0.5071f, 0.4986f, 0.0f),
++		FVector4f(0.5889f, 0.5812f, 0.5736f, 0.0f),
++		FVector4f(0.6539f, 0.6471f, 0.6347f, 0.0f),
++		FVector4f(0.7121f, 0.6964f, 0.6848f, 0.0f),
++		FVector4f(0.7737f, 0.7342f, 0.7283f, 0.0f),
++		FVector4f(0.8264f, 0.7868f, 0.7618f, 0.0f),
++		FVector4f(0.8669f, 0.8616f, 0.7935f, 0.0f),
++		FVector4f(0.9094f, 0.9195f, 0.8532f, 0.0f),
++		FVector4f(0.9547f, 0.9581f, 0.9380f, 0.0f),
++		FVector4f(1.0000f, 1.0000f, 1.0000f, 0.0f)
++	};
++	for (int32 i = 0; i < 16; ++i)
++	{
++		PSParameters.ToneLUT[i] = CoinDemoToneLUT[i];
++	}
++	PSParameters.ToneCorrection = CVarToneCorrection.GetValueOnRenderThread() != 0 ? 1.0f : 0.0f;
+ 	SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), PSParameters);
+ 
+ 	// Draw full-screen triangle (3 vertices, no index buffer)
+diff -ru SourceAssets/OpenSplat4D_backup/Source/NanoGS/Public/GaussianSplatShaders.h Plugins/OpenSplat4D/Source/NanoGS/Public/GaussianSplatShaders.h
+--- SourceAssets/OpenSplat4D_backup/Source/NanoGS/Public/GaussianSplatShaders.h	2026-10-20 15:04:28.830886300 +0900
++++ Plugins/OpenSplat4D/Source/NanoGS/Public/GaussianSplatShaders.h	2026-10-20 15:05:39.341763600 +0900
+@@ -268,6 +268,9 @@
+ 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+ 		SHADER_PARAMETER_TEXTURE(Texture2D, IntermediateTexture)
+ 		SHADER_PARAMETER_SAMPLER(SamplerState, IntermediateSampler)
++		// [CoinDemo] per channel tone correction LUT (16 entries, sRGB in -> sRGB out), see gs.ToneCorrection
++		SHADER_PARAMETER_ARRAY(FVector4f, ToneLUT, [16])
++		SHADER_PARAMETER(float, ToneCorrection)
+ 	END_SHADER_PARAMETER_STRUCT()
+ 
+ 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)

@@ -61,8 +61,8 @@ SURFACES = {
     "Trim": ("Metal063", 2.0, (0.42, 0.42, 0.42), 0.3, 0.8, 0),
     "SignFrame": ("Metal046B", 1.0, (0.12, 0.12, 0.12), 0.8, 0.6, 0),
     "Steel": ("Metal063", 1.5, (0.55, 0.55, 0.55), 0.6, 0.8, 0),
-    "SteelDark": ("Metal046B", 1.0, (1.3, 1.3, 1.35), 0.3, 0.8, 0),
-    "SteelTread": ("MetalPlates006", 0.8, (1.8, 1.8, 1.8), 0.3, 0.9, 0),
+    "SteelDark": ("Metal046B", 1.0, (2.8, 2.8, 2.9), 0.3, 0.8, 0),
+    "SteelTread": ("MetalPlates006", 0.8, (3.0, 3.0, 3.0), 0.3, 0.9, 0),
     "Stainless": ("Metal063", 1.0, (1.4, 1.4, 1.45), 0.9, 0.5, 0),
     "ConeOrange": ("PaintedPlaster017", 1.0, (1.0, 0.25, 0.04), 0.0, 0.7, 0),
     "ConeWhite": ("PaintedPlaster017", 1.0, (0.95, 0.95, 0.95), 0.0, 0.6, 0),
@@ -474,6 +474,18 @@ def main():
     splat = unreal.load_asset(f"{FOLDER}/{ZONE}_Scan")
     splat.build_nanite_cluster_hierarchy()
     library.save_loaded_asset(splat)
+    # the variant that keeps the scanned building, for the high quality level (Scripts/gsquality)
+    task = unreal.AssetImportTask()
+    task.set_editor_property("filename", os.path.join(ZONE_DIR, f"{ZONE}_KeepBuilding.ply"))
+    task.set_editor_property("destination_path", FOLDER)
+    task.set_editor_property("destination_name", f"{ZONE}_ScanKeepBuilding")
+    task.set_editor_property("automated", True)
+    task.set_editor_property("save", True)
+    task.set_editor_property("replace_existing", True)
+    asset_tools.import_asset_tasks([task])
+    keep = unreal.load_asset(f"{FOLDER}/{ZONE}_ScanKeepBuilding")
+    keep.build_nanite_cluster_hierarchy()
+    library.save_loaded_asset(keep)
 
     levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)

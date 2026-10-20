@@ -463,8 +463,9 @@ def blue_elephant(plan, out, floor):
         m.box(ux, ux + 0.85, uy, uy + 0.35, top, top + 0.65, "Steel", skip=("-Z",))
 
     # ---- exterior stair to the 2nd floor (measured: x 12.7-14.6, from the plaza at y 6.0 up to z 1.0 at y 9.0)
-    stair(m, plan, floor)
-    return m, crops, {"GlassFront": front, "GlassSide": side}
+    stair_mesh = meshkit.Mesh("SM_Zone_Stair", collision="complex")
+    stair(stair_mesh, plan, floor)
+    return m, crops, stair_mesh, {"GlassFront": front, "GlassSide": side}
 
 
 def stair(m, plan, floor):
@@ -562,7 +563,7 @@ def removal(plan, scan, floor, domain, sidewalks, surface):
     remove = ground | inside | awnings | signs | stair | props | streak | speck
     counts = {"ground": int(ground.sum()), "building": int((inside | awnings | signs).sum()), "stair": int(stair.sum()),
               "props": int(props.sum()), "streaks": int(streak.sum()), "specks": int(speck.sum())}
-    return remove, counts
+    return remove, counts, {"building": inside | awnings | signs}
 
 
 def plan_image(plan, domain, sidewalks, road, out):
@@ -614,7 +615,8 @@ def main(zone):
           f"at most {floor.stats['max_above'] * 100:.0f} cm above")
     meshes, road = ground_meshes(plan, floor, domain, sidewalks)
     tints = control_texture(plan, road, unary_union(list(sidewalks.values())), out)
-    hero, crops, glass_photos = blue_elephant(plan, out, floor)
+    hero, crops, stair_mesh, glass_photos = blue_elephant(plan, out, floor)
+    meshes.append(stair_mesh)
     board = plan.get("sign_post", {}).get("board")
     if board:
         b = plan["building"]["front_photo"]
@@ -628,8 +630,12 @@ def main(zone):
     meshkit.save(meshes, os.path.join(out, "meshes.json"))
 
     scan = Scan(plan["stage"])
-    remove, counts = removal(plan, scan, raw_floor, domain, sidewalks, floor)
+    remove, counts, parts = removal(plan, scan, raw_floor, domain, sidewalks, floor)
     write_ply(os.path.join(out, f"{zone}.ply"), scan.header, scan.data[~remove])
+    # the high quality variant keeps the scanned building (it is sharper than the model from the street): only the
+    # splats under the new ground, stair and props and the clean up go
+    keep_building = remove & ~parts["building"]
+    write_ply(os.path.join(out, f"{zone}_KeepBuilding.ply"), scan.header, scan.data[~keep_building])
     plan_image(plan, domain, sidewalks, road, out)
     info = {"zone": zone, "box": box, "tints": tints, "signs": crops, "glass": glass_photos, "splats": int(len(remove)), "removed": counts,
             "kept": int((~remove).sum()), "areas": {"road": round(road.area, 1), "sidewalks": round(sum(s.area for s in sidewalks.values()), 1)},

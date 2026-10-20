@@ -67,6 +67,27 @@ void UDevCapture::BeginPlay()
 	bHidePlayer = FParse::Param(CommandLine, TEXT("HidePlayer"));
 	bNoHUD = FParse::Param(CommandLine, TEXT("NoHUD"));
 
+	// -Fly=x,y,z,yaw,pitch;x,y,z,yaw,pitch -FlyStart=3 -FlySeconds=3: a camera moving in a straight line, one
+	// screenshot per frame (run with -UseFixedTimeStep -FPS=30 so frames are evenly spaced), for motion checks
+	FString Fly;
+	if (FParse::Value(CommandLine, TEXT("Fly="), Fly, false))
+	{
+		TArray<FString> Ends;
+		Fly.ParseIntoArray(Ends, TEXT(";"));
+		for (const FString& End : Ends)
+		{
+			TArray<FString> Parts;
+			End.ParseIntoArray(Parts, TEXT(","));
+			if (Parts.Num() >= 5)
+			{
+				FlyPath.Add({ FVector(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2])),
+					FRotator(FCString::Atof(*Parts[4]), FCString::Atof(*Parts[3]), 0.0f) });
+			}
+		}
+		FParse::Value(CommandLine, TEXT("FlyStart="), FlyStart);
+		FParse::Value(CommandLine, TEXT("FlySeconds="), FlySeconds);
+	}
+
 	FString Cvars;
 	if (FParse::Value(CommandLine, TEXT("Cvars="), Cvars, false))
 	{
@@ -174,7 +195,7 @@ void UDevCapture::BeginPlay()
 		}
 	}
 
-	SetComponentTickEnabled(ShotTimes.Num() > 0 || Views.Num() > 0 || BotSteps.Num() > 0 || StartTransform.IsSet() || bNoHUD || bHidePlayer);
+	SetComponentTickEnabled(ShotTimes.Num() > 0 || FlyPath.Num() > 0 || Views.Num() > 0 || BotSteps.Num() > 0 || StartTransform.IsSet() || bNoHUD || bHidePlayer);
 }
 
 void UDevCapture::RunBotStep()
@@ -268,6 +289,28 @@ void UDevCapture::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 		++FrameCount;
 		FrameTime += Delta;
 		WorstFrame = FMath::Max(WorstFrame, Delta);
+	}
+
+	if (FlyPath.Num() == 2 && PC && Now >= FlyStart)
+	{
+		const float Alpha = (Now - FlyStart) / FMath::Max(FlySeconds, 0.1f);
+		if (!ViewCamera)
+		{
+			ViewCamera = GetWorld()->SpawnActor<ACameraActor>();
+			PC->SetViewTarget(ViewCamera);
+		}
+		if (Alpha <= 1.0f)
+		{
+			ViewCamera->SetActorLocationAndRotation(FMath::Lerp(FlyPath[0].Key, FlyPath[1].Key, Alpha),
+				FMath::Lerp(FlyPath[0].Value, FlyPath[1].Value, Alpha));
+			const FString File = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Screenshots") / FString::Printf(TEXT("%s_f%03d.png"), *ShotName, FlyFrame++));
+			FScreenshotRequest::RequestScreenshot(File, false, false);
+		}
+		else if (bQuitAfterShots && ShotTimes.Num() == 0)
+		{
+			FlyPath.Reset();
+			FPlatformMisc::RequestExit(false, TEXT("DevCapture"));
+		}
 	}
 
 	if (bNoHUD && PC && PC->GetHUD())

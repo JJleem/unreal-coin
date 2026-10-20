@@ -77,6 +77,12 @@ class UDevCapture : public UActorComponent
 	TOptional<FRotator> HeldView;
 	TArray<bool> FreeCamera;
 
+	/** -Fly: camera path ends, start time, duration, frames taken */
+	TArray<TPair<FVector, FRotator>> FlyPath;
+	float FlyStart = 3.0f;
+	float FlySeconds = 3.0f;
+	int32 FlyFrame = 0;
+
 	UPROPERTY(Transient)
 	TObjectPtr<class ACameraActor> ViewCamera;
 	float NextViewTime = 3.0f;
