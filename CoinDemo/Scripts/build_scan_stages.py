@@ -396,4 +396,6 @@ def main():
         build_stage(folder)
 
 
-main()
+# imported by parkingstage/build_parking_stage.py for its helpers
+if __name__ == "__main__":
+    main()

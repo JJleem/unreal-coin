@@ -357,4 +357,6 @@ def main():
     unreal.log(f"[Reimagined] saved {LEVEL}: {len(meshes)} meshes, {len(materials)} materials, {count} prop actors")
 
 
-main()
+# hongdae_night/build_night_level.py imports this file for its material and mesh helpers
+if __name__ == "__main__":
+    main()
